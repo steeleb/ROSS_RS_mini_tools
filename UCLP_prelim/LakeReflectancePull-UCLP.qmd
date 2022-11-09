@@ -1,0 +1,137 @@
+---
+title: "LakeReflectancePull-UCLP"
+author: "B Steele"
+format: html
+jupyter: python3
+---
+
+## Purpose
+
+Use existing LimnoSat code to pull reflectance values for Landsat-visible lakes in upper CLP. At this time we're only pulling for 8 lakes. Code here is heavily borrowed from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) and the AquaSat v2 repo (add link later since it's behind bars right now). This updates all LS pulls to C2 and includes LS9.
+
+## Requirements
+
+This code requires user to also have a bash shell open to run commands. I'm using VSCode, but you could use any other shell terminal. There are also some inline requirements at this time, we'll figure that out later. All requirements are noted throughout this doc.
+
+## Prepare!
+
+Import python modules. The virtual environment should begin automatically if the parent Rproj file is open. If it's not this, will probably spit out error messages about 'ee' and pandas. As a reality check, make sure that, in your terminal, the lines begin with '(env)', which means the virtual environment is activated. If not, restart, open the Rproj and try again.
+
+```{python}
+import time
+import ee
+import os
+import pandas as pd
+```
+
+Authenticate earth engine. To do this, go to your command line interpreter (not the terminal in RStudiuo) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download and install gcloud](https://cloud.google.com/sdk/docs/install) for this to function.
+
+Initialize earth engine.
+
+```{python}
+ee.Initialize()
+```
+
+Source functions from the AS v2 src code (these will likely have to be updated, for now, just point) - this is a local file on B's computer, will need to update later.
+
+```{python}
+exec(open('/Users/steeleb/Documents/aquasat_v2-main/2_rsdata/src/GEE_pull_functions.py').read())
+
+```
+
+Read in lat/lon file and create an EE asset. For now, manually go into EE GUI and add your file as an EE asset. Later, this will be updated to take .csv and create ee asset from it.
+
+```{python}
+file = 'upper_poudre_lakes.csv'
+locs = pd.read_csv(file)
+print(locs)
+```
+
+```{python}
+dp = ee.FeatureCollection('users/steelebcsu/uclp-proposal')
+```
+
+Grab WRS tiles in descending (daytime) mode for CONUS
+
+```{python}
+wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
+    .filterBounds(dp) #grab only wrs overlap with dp
+wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending path
+    
+pr = wrs.aggregate_array('PR').getInfo() #create PathRow values that we're interested in
+```
+
+```{python}
+dummyBands = ee.Image(-99).rename('Null_CS')\
+    .addBands(ee.Image(-99).rename('Null_TIR2'))
+
+def addDummy(i):
+    return i.addBands(dummyBands)
+
+l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
+l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+l7 = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')\
+    .map(addDummy)
+l5 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')\
+    .map(addDummy)
+
+#Standardize band names between the various collections and aggregate 
+#them into one image collection
+bn89 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10', 'QA_PIXEL']
+bn57 = ['Null_CS', 'SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'QA_PIXEL']
+bns = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa']
+  
+ls5 = l5.select(bn57, bns)
+ls7 = l7.select(bn57, bns)
+ls8 = l8.select(bn89, bns)
+ls9 = l9.select(bn89, bns)
+
+ls = ee.ImageCollection(ls5.merge(ls7).merge(ls8).merge(ls9))\
+    .filter(ee.Filter.lt('CLOUD_COVER', 75))\
+    .filterBounds(wrs)  
+```
+
+## Grab the stacks.
+
+Set up a counter and list to keep track of what's been done already. We'll use this in case something is wonky and we need to run again.
+
+```{python}
+## Set up a counter and a list to keep track of what's been done already
+counter = 0
+done = []    
+```
+
+This chunk does the heavy lifting. You can re-run this and only process the un-processed pathrow combinations because of the pr loop here.
+
+```{python}
+pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
+
+for tiles in pr:
+    tile = wrs.filterMetadata('PR', 'equals', tiles)
+    # For some reason we need to cast this to a list and back to a
+    # feature collection
+    lakes = dp.filterBounds(tile.geometry())\
+        .map(dpBuff)
+        
+    #lakes = ee.FeatureCollection(lakes.toList(10000))
+    stack = ls.filterBounds(tile.geometry().centroid())
+    out = stack.map(RefPull).flatten() #.filterMetadata('cScore_clouds','less_than',.5)
+    dataOut = ee.batch.Export.table.toDrive(collection = out,\
+                                            description = str(tiles),\
+                                            folder = 'LakeReflRepo',\
+                                            fileFormat = 'csv',\
+                                            selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa'])
+                                            #removed [, 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','permanent','distance']
+    #Check how many existing tasks are running and take a break if it's >25  
+    maximum_no_of_tasks(25, 120)
+    #Send next task.
+    dataOut.start()
+    counter = counter + 1
+    done.append(tiles)
+    print('done_' + str(counter) + '_' + str(tiles))
+    
+maximum_no_of_tasks(1,120)
+print('done')
+```
+
+\
