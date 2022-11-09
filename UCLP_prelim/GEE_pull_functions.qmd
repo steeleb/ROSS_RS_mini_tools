@@ -1,0 +1,61 @@
+---
+title: "GEE_pull_functions.qmd"
+format: html
+editor: visual
+jupyter: python3
+---
+
+## Purpose
+
+This script borrows heavily from the script 'GEE_pull_functions.py' (Simon Topp) from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) and the AquaSat v2 repo (add link later since it's behind bars right now). The functions here have been updated to C2 metadata names.
+
+## Functions
+
+To buffer lat/longs:
+
+```{python}
+## Buffer the lake sites
+def dpBuff(i):
+    return i.buffer(120)
+```
+
+To pull and aggregate the SR and ST data:
+
+```{python}
+## Set up the reflectance pull
+def RefPull(image):
+    f = AddFmask(image).select('fmask')
+    clouds = f.gte(2).rename('clouds')
+    #cScore = clouds.reduceRegion(ee.Reducer.mean(),lake.geometry(), 30).get('fmask')
+    d = Dswe(image).select('dswe')
+    #h = CalcHillShades(image, tile.geometry()).select('hillShade')
+    hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
+    dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(clouds.eq(0)) 
+    dummy = (image.select(['Blue'],['dswe1'])
+        .updateMask(clouds.eq(0)).updateMask(d.eq(1)))
+    
+    #imageSD = image.select(['Blue','Green','Red','Nir'],['BlueSD','GreenSD','RedSD','NirSD'] )
+   
+    pixOut = (image.addBands(hs)
+              .addBands(image.select(['Nir'],['NirSD']))
+              .updateMask(d.eq(1))
+              .updateMask(clouds.eq(0))
+              .addBands(dswe3)
+              .addBands(dummy)
+              .addBands(clouds))
+    
+    combinedReducer = (ee.Reducer.median().unweighted()
+    .forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'TIR1','TIR2','pixel_qa', 'hillShadow']))
+    .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['NirSD'])), 'sd_', False)
+    .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['dswe3', 'dswe1'])), 'pCount_', False)
+    .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds'])), 'cScore_', False))
+         
+    
+    # Collect median reflectance and occurance values
+    # Make a cloud score, and get the water pixel count
+    lsout = pixOut.reduceRegions(lakes, combinedReducer, 30)
+    
+    out = lsout.map(removeGeo)
+    
+    return out
+```
