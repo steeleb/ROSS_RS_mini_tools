@@ -48,7 +48,7 @@ print(locs)
 ```
 
 ```{python}
-dp = ee.FeatureCollection('users/steelebcsu/uclp-proposal')
+dp = ee.FeatureCollection('projects/ee-steelebcsu/assets/uclp-proposal')
 ```
 
 Grab WRS tiles in descending (daytime) mode for CONUS
@@ -69,12 +69,17 @@ dummyBands = ee.Image(-99).rename('Null_CS')\
 def addDummy(i):
     return i.addBands(dummyBands)
 
-l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
-l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+#grab images and apply scaling factors
+l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')\
+    .map(applyScaleFactors)
+l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')\
+    .map(applyScaleFactors)
 l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')\
-    .map(addDummy)
+    .map(addDummy)\
+    .map(applyScaleFactors)
 l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')\
-    .map(addDummy)
+    .map(addDummy)\
+    .map(applyScaleFactors)
 
 #Standardize band names between the various collections and aggregate 
 #them into one image collection
@@ -117,29 +122,30 @@ pr = [i for i in pr if i not in done] #this removes pathrow values that have alr
 
 ```{python}
 for tiles in pr:
-    tile = wrs.filterMetadata('PR', 'equals', tiles)
-    # For some reason we need to cast this to a list and back to a
-    # feature collection
-    lakes = dp.filterBounds(tile.geometry())\
-      .map(dpBuff)
-    # snip the ls data by the geometry of the 'lakes'    
-    stack = ls.filterBounds(lakes.geometry())
-    # map the refpull function across the 'stack', flatten to an array, filter to remove scenes with clouds less than 50%.
-    out = stack.map(RefPull)\
-      .flatten()\
-      .filterMetadata('cScore_clouds','less_than',.5)
-    dataOut = ee.batch.Export.table.toDrive(collection = out,\
-                                            description = str(tiles),\
-                                            folder = 'LakeReflRepo',\
-                                            fileFormat = 'csv',\
-                                            selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','permanent','distance'])
-    #Check how many existing tasks are running and take a break if it's >25  
-    maximum_no_of_tasks(25, 120)
-    #Send next task.
-    dataOut.start()
-    counter = counter + 1
-    done.append(tiles)
-    print('done_' + str(counter) + '_' + str(tiles))
-    
+  tile = wrs.filterMetadata('PR', 'equals', tiles)
+  # For some reason we need to cast this to a list and back to a
+  # feature collection
+  lakes = dp.filterBounds(tile.geometry())\
+    .map(dpBuff)
+  # snip the ls data by the geometry of the lake points    
+  stack = ls.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
+  # map the refpull function across the 'stack', flatten to an array, filter to keep scenes with clouds less than 50%.
+  out = stack.map(RefPull)\
+    .flatten()\
+    .filterMetadata('cScore_clouds','less_than',.5)
+  dataOut = ee.batch.Export.table.toDrive(collection = out,\
+                                          description = str(tiles),\
+                                          folder = 'LakeReflRepo',\
+                                          fileFormat = 'csv',\
+                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp'])
+                                          #,'pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','permanent','distance'])
+  #Check how many existing tasks are running and take a break if it's >25  
+  maximum_no_of_tasks(25, 120)
+  #Send next task.
+  dataOut.start()
+  counter = counter + 1
+  done.append(tiles)
+  print('done_' + str(counter) + '_' + str(tiles))
+  
 print('done')
 ```
