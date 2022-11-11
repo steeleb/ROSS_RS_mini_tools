@@ -7,7 +7,7 @@ jupyter: python3
 
 ## Purpose
 
-Use existing LimnoSat code to pull reflectance values for Landsat-visible lakes in upper CLP. At this time we're only pulling for 8 lakes. Code here is heavily borrowed from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) and the AquaSat v2 repo (add link later since it's behind bars right now). This updates all LS pulls to C2 and includes LS9.
+Use existing LimnoSat code to pull reflectance values for Landsat-visible lakes in upper CLP. At this time we're only pulling for 8 lakes. Code here is heavily borrowed from the script 'LakeExport.py' from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) and the AquaSat v2 repo (add link later since it's behind bars right now). This updates all LS pulls to C2 and includes LS9.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ ee.Initialize()
 Source functions from the AS v2 src code (these will likely have to be updated, for now, just point) - this is a local file on B's computer, will need to update later.
 
 ```{python}
-exec(open('/Users/steeleb/Documents/aquasat_v2-main/2_rsdata/src/GEE_pull_functions.py').read())
+exec(open('GEE_pull_functions.qmd').read())
 
 ```
 
@@ -62,6 +62,7 @@ pr = wrs.aggregate_array('PR').getInfo() #create PathRow values that we're inter
 ```
 
 ```{python}
+#need to create some extra bands for ls 5 and 7 so that they play nice with ls8/9
 dummyBands = ee.Image(-99).rename('Null_CS')\
     .addBands(ee.Image(-99).rename('Null_TIR2'))
 
@@ -70,9 +71,9 @@ def addDummy(i):
 
 l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
 l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
-l7 = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')\
+l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')\
     .map(addDummy)
-l5 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')\
+l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')\
     .map(addDummy)
 
 #Standardize band names between the various collections and aggregate 
@@ -86,9 +87,14 @@ ls7 = l7.select(bn57, bns)
 ls8 = l8.select(bn89, bns)
 ls9 = l9.select(bn89, bns)
 
+# merge collections and then filter to wrs extent; leaving out the cloud cover filter, as that's scene-level metadata and propbably unnecessary since we'll use the bitQA to filter pixels
 ls = ee.ImageCollection(ls5.merge(ls7).merge(ls8).merge(ls9))\
-    .filter(ee.Filter.lt('CLOUD_COVER', 75))\
     .filterBounds(wrs)  
+    #.filter(ee.Filter.lt('CLOUD_COVER', 75))\
+    
+# do a reality check to see how many unique scenes are here.    
+ls_count = ls.aggregate_count('LANDSAT_PRODUCT_ID').getInfo()
+print(ls_count)
 ```
 
 ## Grab the stacks.
@@ -105,23 +111,28 @@ This chunk does the heavy lifting. You can re-run this and only process the un-p
 
 ```{python}
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
+```
 
+\
+
+```{python}
 for tiles in pr:
     tile = wrs.filterMetadata('PR', 'equals', tiles)
     # For some reason we need to cast this to a list and back to a
     # feature collection
     lakes = dp.filterBounds(tile.geometry())\
-        .map(dpBuff)
-        
-    #lakes = ee.FeatureCollection(lakes.toList(10000))
-    stack = ls.filterBounds(tile.geometry().centroid())
-    out = stack.map(RefPull).flatten() #.filterMetadata('cScore_clouds','less_than',.5)
+      .map(dpBuff)
+    # snip the ls data by the geometry of the 'lakes'    
+    stack = ls.filterBounds(lakes.geometry())
+    # map the refpull function across the 'stack', flatten to an array, filter to remove scenes with clouds less than 50%.
+    out = stack.map(RefPull)\
+      .flatten()\
+      .filterMetadata('cScore_clouds','less_than',.5)
     dataOut = ee.batch.Export.table.toDrive(collection = out,\
                                             description = str(tiles),\
                                             folder = 'LakeReflRepo',\
                                             fileFormat = 'csv',\
-                                            selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa'])
-                                            #removed [, 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','permanent','distance']
+                                            selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','permanent','distance'])
     #Check how many existing tasks are running and take a break if it's >25  
     maximum_no_of_tasks(25, 120)
     #Send next task.
@@ -130,8 +141,5 @@ for tiles in pr:
     done.append(tiles)
     print('done_' + str(counter) + '_' + str(tiles))
     
-maximum_no_of_tasks(1,120)
 print('done')
 ```
-
-\
