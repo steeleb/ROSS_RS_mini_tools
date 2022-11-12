@@ -16,7 +16,7 @@ To buffer lat/longs:
 ```{python}
 ## Buffer the lake sites
 def dpBuff(i):
-  return i.buffer(30)
+  return i.buffer(50) #doing a 50m buffer for this project
   
 ```
 
@@ -45,16 +45,6 @@ def AddFmask(image):
     .updateMask(qa.gte(0))) #mask the fmask so that it has the same footprint as the quality (BQA) band
   return image.addBands(fmask)
   
-```
-
-Convert DN to unscaled values:
-
-```{python}
-def applyScaleFactors(image):
-  opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2)
-  thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0)
-  return image.addBands(opticalBands, overwrite=True).addBands(thermalBands, overwrite=True)
-
 ```
 
 Bandmath for Dswe:
@@ -217,15 +207,13 @@ def RefPull(image):
             .addBands(dswe3)
             .addBands(dummy)
             .addBands(clouds))
-  simpleReducer = ee.Reducer.median().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp', 'pixel_qa']))
   combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp', 'pixel_qa', 'hillShadow']))
   .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['NirSD'])), 'sd_', False)
   .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['dswe3', 'dswe1'])), 'pCount_', False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds'])), 'cScore_', False))
   # Collect median reflectance and occurance values
   # Make a cloud score, and get the water pixel count
-  lsout = pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp', 'pixel_qa']).reduceRegions(lakes, simpleReducer, 30)
-  # lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
+  lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
   out = lsout.map(removeGeo)
   return out
   

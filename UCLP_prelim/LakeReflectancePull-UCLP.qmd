@@ -7,7 +7,7 @@ jupyter: python3
 
 ## Purpose
 
-Use existing LimnoSat code to pull reflectance values for Landsat-visible lakes in upper CLP. At this time we're only pulling for 8 lakes. Code here is heavily borrowed from the script 'LakeExport.py' from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) and the AquaSat v2 repo (add link later since it's behind bars right now). This updates all LS pulls to C2 and includes LS9.
+Use existing LimnoSat code to pull reflectance values for Landsat-visible lakes in upper CLP. At this time we're only pulling for 8 lakes. Code here is heavily borrowed from the script 'LakeExport.py' from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) (Simon Topp). This updates all LS pulls to C2 and includes LS9.
 
 ## Requirements
 
@@ -15,7 +15,11 @@ This code requires user to also have a bash shell open to run commands. I'm usin
 
 ## Prepare!
 
-Import python modules. The virtual environment should begin automatically if the parent Rproj file is open. If it's not this, will probably spit out error messages about 'ee' and pandas. As a reality check, make sure that, in your terminal, the lines begin with '(env)', which means the virtual environment is activated. If not, restart, open the Rproj and try again.
+### Set up your virtual environment (if you haven't already).
+
+To do this, run the lines in the 'venv_setup.bash' in your command line interpreter. If you've already done this, the virtual environment should begin automatically if the parent Rproj file is open. If it's not this, will probably spit out error messages about 'ee' and 'pandas'. As a reality check, make sure that, in your terminal, the lines begin with '(env)', which means the virtual environment is activated. If not, restart, open the Rproj and try again.
+
+### Import python modules.
 
 ```{python}
 import time
@@ -24,18 +28,20 @@ import os
 import pandas as pd
 ```
 
-Authenticate earth engine. To do this, go to your command line interpreter (not the terminal in RStudiuo) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download and install gcloud](https://cloud.google.com/sdk/docs/install) for this to function.
+### Authenticate earth engine. 
 
-Initialize earth engine.
+To do this, go to your command line interpreter (not the terminal in RStudiuo) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download and install gcloud](https://cloud.google.com/sdk/docs/install) for this to function.
+
+### Initialize earth engine.
 
 ```{python}
 ee.Initialize()
 ```
 
-Source functions from the AS v2 src code (these will likely have to be updated, for now, just point) - this is a local file on B's computer, will need to update later.
+Source functions from the GEE_pull_funtions.qmd file. **Note, this is not currently functioning. You'll need to go through and run the script manually.**
 
 ```{python}
-exec(open('GEE_pull_functions.qmd').read())
+#exec(open('GEE_pull_functions.qmd').read())
 
 ```
 
@@ -49,6 +55,7 @@ print(locs)
 
 ```{python}
 dp = ee.FeatureCollection('projects/ee-steelebcsu/assets/uclp-proposal')
+
 ```
 
 Grab WRS tiles in descending (daytime) mode for CONUS
@@ -70,23 +77,22 @@ def addDummy(i):
     return i.addBands(dummyBands)
 
 #grab images and apply scaling factors
-l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')\
-    .map(applyScaleFactors)
-l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')\
-    .map(applyScaleFactors)
+l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
+l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
 l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')\
-    .map(addDummy)\
-    .map(applyScaleFactors)
+    .map(addDummy)
 l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')\
-    .map(addDummy)\
-    .map(applyScaleFactors)
-
+    .map(addDummy)
+    
 #Standardize band names between the various collections and aggregate 
 #them into one image collection
+#current names (in order of new names)
 bn89 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10', 'QA_PIXEL']
 bn57 = ['Null_CS', 'SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'QA_PIXEL']
+#new names
 bns = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa']
   
+# rename bands  
 ls5 = l5.select(bn57, bns)
 ls7 = l7.select(bn57, bns)
 ls8 = l8.select(bn89, bns)
@@ -112,13 +118,13 @@ counter = 0
 done = []    
 ```
 
-This chunk does the heavy lifting. You can re-run this and only process the un-processed pathrow combinations because of the pr loop here.
+You can re-run this and the next chucnk and only process the un-processed pathrow combinations because of the pr loop here, just in case something absolutely devastating happens.
 
 ```{python}
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
 ```
 
-\
+This chunk does the heavy lifting.
 
 ```{python}
 for tiles in pr:
@@ -137,8 +143,7 @@ for tiles in pr:
                                           description = str(tiles),\
                                           folder = 'LakeReflRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp'])
-                                          #,'pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','permanent','distance'])
+                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index'])
   #Check how many existing tasks are running and take a break if it's >25  
   maximum_no_of_tasks(25, 120)
   #Send next task.
