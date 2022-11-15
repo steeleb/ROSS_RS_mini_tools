@@ -52,6 +52,18 @@ def dpBuff(i):
   
 ```
 
+#### To Scale Surface Reflectance and Surface Temperature Values
+
+```{python}
+# per GEE code
+def applyScaleFactors(image):
+  opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2)
+  thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0)
+  return image.addBands(opticalBands, None, True)\
+    .addBands(thermalBands, None, True)
+              
+```
+
 ### **Functions referenced in RefPull function:**
 
 #### Bit Mask for image quality:
@@ -278,23 +290,23 @@ def maximum_no_of_tasks(MaxNActive, waitingPeriod):
 
 ```
 
-## Load in location data
+## Load in location data and Landsat collections
 
 Read in lat/lon file and create an EE asset. Location file must use the column names 'Latitude' and 'Longitude', otherwise make sure you rename them before running the function.
 
 ```{python}
-#point to file
+#point to file - must contin Latitude, Longitude, comid, and name
 locs_file = 'upper_poudre_lakes.csv'
 locs = pd.read_csv(locs_file)
-#rename to Latitude and Longitude
-locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude'})
+#rename to required cols
+locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude', 'Name':'name'})
 
 def csv_to_eeFeat(df):
   features=[]
   for i in range(df.shape[0]):
     x,y = df.Longitude[i],df.Latitude[i]
     latlong =[x,y]
-    loc_properties = {'name':df.Name[i], 'comid':str(df.comid[i])}
+    loc_properties = {'name':df.name[i], 'comid':str(df.comid[i])}
     g=ee.Geometry.Point(latlong) 
     feature = ee.Feature(g, loc_properties)
     features.append(feature)
@@ -311,11 +323,13 @@ Grab WRS tiles in descending (daytime) mode for CONUS
 
 ```{python}
 wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
-    .filterBounds(dp) #grab only wrs overlap with dp
-wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending path
+    .filterBounds(locs_feature) #grab only wrs overlap with dp
+wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
     
-pr = wrs.aggregate_array('PR').getInfo() #create PathRow values that we're interested in
+pr = wrs.aggregate_array('PR').getInfo() #create PathRow lit that we're interested in
 ```
+
+Grab all Landsat Collection 2 image collections, apply scaling factors, and harmonize band names and definitions
 
 ```{python}
 #need to create some extra bands for ls 5 and 7 so that they play nice with ls8/9
@@ -326,11 +340,15 @@ def addDummy(i):
     return i.addBands(dummyBands)
 
 #grab images and apply scaling factors
-l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
-l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')\
+    .map(applyScaleFactors)
+l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')\
+    .map(applyScaleFactors)
 l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')\
+    .map(applyScaleFactors)\
     .map(addDummy)
 l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')\
+    .map(applyScaleFactors)\
     .map(addDummy)
     
 #Standardize band names between the various collections and aggregate 
@@ -347,7 +365,7 @@ ls7 = l7.select(bn57, bns)
 ls8 = l8.select(bn89, bns)
 ls9 = l9.select(bn89, bns)
 
-# merge collections and then filter to wrs extent; leaving out the cloud cover filter, as that's scene-level metadata and propbably unnecessary since we'll use the bitQA to filter pixels
+# merge collections and then filter to those that intersect with wrs path row combos; leaving out the cloud cover filter, as that's scene-level metadata and propbably unnecessary since we'll use the bitQA to filter pixels
 ls = ee.ImageCollection(ls5.merge(ls7).merge(ls8).merge(ls9))\
     .filterBounds(wrs)  
     #.filter(ee.Filter.lt('CLOUD_COVER', 75))\
