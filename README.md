@@ -1,8 +1,9 @@
-# proposals_nonpublic
-space for half-baked proposals, the non-public version. 
+# ROSS_mini_tools
 
-## UCLP_prelim
+Useful tools created by the ROSSyndicate.
+
+## landsat_sr_c2
 
 *Contact: B Steele*
 
-Scripts for the Nov 2022 UCLP proposal. Half-assed version of the SR scripts, but updated to C2 and adds LS9.  
+Scripts for processing Landsat 5-9 reflectance and temp stacks using a Python GEE API.
