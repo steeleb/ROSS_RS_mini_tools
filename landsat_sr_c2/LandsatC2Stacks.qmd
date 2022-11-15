@@ -1,5 +1,5 @@
 ---
-title: "LakeReflectancePull-UCLP"
+title: "Pull Landsat Collection 2 Stacks"
 author: "B Steele"
 format: html
 jupyter: python3
@@ -31,7 +31,7 @@ import pandas as pd
 
 ### Authenticate earth engine.
 
-To do this, go to your command line interpreter (not the terminal in RStudiuo) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download, install, and initialize gcloud](https://cloud.google.com/sdk/docs/install) for this to function.
+To do this, go to your command line interpreter (not the terminal in RStudio) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download, install, and initialize gcloud](https://cloud.google.com/sdk/docs/install) for this to function.
 
 ### Initialize earth engine.
 
@@ -52,7 +52,7 @@ def dpBuff(i):
   
 ```
 
-### **Functions referenced in RefPull function:** 
+### **Functions referenced in RefPull function:**
 
 #### Bit Mask for image quality:
 
@@ -280,17 +280,31 @@ def maximum_no_of_tasks(MaxNActive, waitingPeriod):
 
 ## Load in location data
 
-Read in lat/lon file and create an EE asset. For now, manually go into EE GUI and add your file as an EE asset. Later, this will be updated to take .csv and create ee asset from it.
+Read in lat/lon file and create an EE asset. Location file must use the column names 'Latitude' and 'Longitude', otherwise make sure you rename them before running the function.
 
 ```{python}
-file = 'upper_poudre_lakes.csv'
-locs = pd.read_csv(file)
-print(locs)
-```
+#point to file
+locs_file = 'upper_poudre_lakes.csv'
+locs = pd.read_csv(locs_file)
+#rename to Latitude and Longitude
+locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude'})
 
-```{python}
-dp = ee.FeatureCollection('projects/ee-steelebcsu/assets/uclp-proposal')
+def csv_to_eeFeat(df):
+  features=[]
+  for i in range(df.shape[0]):
+    x,y = df.Longitude[i],df.Latitude[i]
+    latlong =[x,y]
+    loc_properties = {'name':df.Name[i], 'comid':str(df.comid[i])}
+    g=ee.Geometry.Point(latlong) 
+    feature = ee.Feature(g, loc_properties)
+    features.append(feature)
+  ee_object = ee.FeatureCollection(features)
+  return ee_object
 
+locs_feature = csv_to_eeFeat(locs)  
+
+#check to make sure everything showed up.
+locs_feature.getInfo()
 ```
 
 Grab WRS tiles in descending (daytime) mode for CONUS
