@@ -52,6 +52,9 @@ locs = read_csv(locs_file)
 #rename to required cols
 locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude', 'Name':'name'})
 
+#give this a short project name (for file naming conventions)
+proj = 'CPF'
+
 def csv_to_eeFeat(df):
   features=[]
   for i in range(df.shape[0]):
@@ -165,7 +168,7 @@ ls_st = ls.select(stbns)
 ```{python}
 ## Buffer the lake sites
 def dpBuff(i):
-  return i.buffer(50) #doing a 50m buffer for this project
+  return i.buffer(120) #doing a 50m buffer for this project
   
 ```
 
@@ -202,8 +205,8 @@ def AddFmask(image):
 def AddTmask(image):
   #grab the temp_qa band
   tqa = image.select('temp_qa')
-  #only pass through values less than 3 deg error
-  tmask = (tqa.lte(1).rename('tmask')
+  #only pass through values less than 2 deg error
+  tmask = (tqa.lte(2).rename('tmask')
     .updateMask(tqa.gte(0)))
   return image.addBands(tmask)
 ```
@@ -393,8 +396,8 @@ def TempPull(image):
   pixOut = (newImage.addBands(validTemp)
             .addBands(d)
             .updateMask(d.eq(1)))
-  combinedReducer = ((ee.Reducer.median().unweighted().forEachBand(pixOut.select('SurfTemp')))
-    .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select('SurfTemp')), 'sd_', False)
+  combinedReducer = ((ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select('SurfTemp').rename('sd_SurfTemp')))
+    .combine(ee.Reducer.median().unweighted().forEachBand(pixOut.select('SurfTemp')), 'med_', False)
     .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select('SurfTemp')), 'pCount_', False))
   # Collect median temp and occurance values
   stout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
@@ -461,12 +464,12 @@ for tiles in pr:
   out = stack.map(RefPull)\
     .flatten()\
     .filterMetadata('cScore_clouds','less_than',.5)
-  srname = 'SurfRef_'+str(tiles)+'_v'+str(date.today())
+  srname = proj+'_SurfRef_'+str(tiles)+'_v'+str(date.today())
   dataOut = ee.batch.Export.table.toDrive(collection = out,\
                                           description = srname,\
                                           folder = 'LakeReflRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index'])
+                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','system:feature'])
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
@@ -493,12 +496,12 @@ for tiles in pr:
   # map the temppull across the stack
   tempOut = stack.map(TempPull)\
     .flatten()
-  stname = 'SurfTemp_'+str(tiles)+'_v'+str(date.today())
+  stname = proj+'_SurfTemp_'+str(tiles)+'_v'+str(date.today())
   tempDataOut = ee.batch.Export.table.toDrive(collection = tempOut,\
                                           description = stname,\
                                           folder = 'LakeTempRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['SurfTemp','sd_SurfTemp', 'pCount_SurfTemp', 'system:index'])
+                                          selectors = ['med_SurfTemp','sd_SurfTemp', 'pCount_SurfTemp', 'system:index'])
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
   #Send next task.                                        
