@@ -469,7 +469,7 @@ for tiles in pr:
                                           description = srname,\
                                           folder = 'LakeReflRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index','system:feature'])
+                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index'])
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
