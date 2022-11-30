@@ -9,17 +9,17 @@ jupyter: python3
 
 *Pull surface reflectance and surface temperature values for Landsat-visible lakes given user-provided locations. Code here is heavily borrowed from the script 'LakeExport.py' and 'GEE_reflectance_pull.py' from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) (Simon Topp).*
 
-*Updates in this script includes updating to Landsat Collection 2 and including the Landsat 9 mission. Additional feature adds are applying fmask using **SR_Cloud_QA** band for the Level 2 surface reflectance (SR) product and using the **ST_QA** band to mask less-accurate surface temperature (ST) pixels*
+*Updates in this script includes updating to Landsat Collection 2 and including the Landsat 9 mission. Additional feature adds are using the **ST_QA** band to mask less-accurate surface temperature (ST) pixels and adding a **RADSAT_QA** band filter to mask out saturated pixels.*
 
 ## *Requirements*
 
-*This code requires user to also have a bash shell open to run commands. I'm using VSCode, but you could use any other shell terminal. There are also some inline requirements at this time, we'll figure that out later. All requirements are noted throughout this doc.*
+*This code requires user to also have a bash shell open to run commands. I'm using VSCode, but you could use any other shell/command line terminal. There are some lingering inline requirements at this time, we'll figure that out later, but are noted along the way.*
 
 ## *Prepare!*
 
 ### *Set up your virtual environment (if you haven't already).*
 
-*To do this, run the lines in the 'venv_setup.bash' in your command line interpreter. If you've already done this, the virtual environment should begin automatically if the parent Rproj file is open. If it's not this, will probably spit out error messages about 'ee' and 'pandas'. As a reality check, make sure that, in your terminal, the lines begin with '(env)', which means the virtual environment is activated. If not, restart, open the Rproj and try again.*
+*To do this, run the lines in the 'venv_setup.bash' in your command line interpreter. If you've already done this, the virtual environment should begin automatically if the parent Rproj file is open. If it's not this, will probably spit out error messages about 'ee' and 'pandas'. As a reality check, make sure that, in your terminal, the lines begin with '(env)', which means the virtual environment is activated. If not, restart, open the Rproj and try again. Otherwise, re-create the virtual environment by deleting the 'env' file and re-running the venv_setup.bash script.*
 
 ### *Import python modules.*
 
@@ -27,13 +27,13 @@ jupyter: python3
 import time
 import ee
 import os
-import pandas as pd
-
+from pandas import read_csv
+from datetime import date
 ```
 
 ### *Authenticate earth engine.*
 
-*To do this, go to your command line interpreter (not the terminal in RStudio) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download, install, and initialize gcloud](https://cloud.google.com/sdk/docs/install) for this to function.*
+*To do this, go to your command line interpreter (not the terminal in RStudio because it doesn't work here for some reason) and type 'earthengine authenticate' (atm, 'ee.Authenticate()' is not working here will figure that out later), you will need to [download, install, and initialize gcloud](https://cloud.google.com/sdk/docs/install) for this to function. Additionally, you will need a [Google Earth Engine account](https://earthengine.google.com/signup/).*
 
 ### *Initialize earth engine.*
 
@@ -48,7 +48,7 @@ ee.Initialize()
 ```{python}
 #point to file - must contin Latitude, Longitude, comid, and name
 locs_file = 'upper_poudre_lakes.csv'
-locs = pd.read_csv(locs_file)
+locs = read_csv(locs_file)
 #rename to required cols
 locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude', 'Name':'name'})
 
@@ -96,6 +96,18 @@ def applyScaleFactors(image):
     .addBands(thermalBands, None, True)
 ```
 
+Grab WRS tiles (these are the 'path' and 'rows' that Landsat operates on) in descending (daytime) mode for CONUS
+
+```{python}
+wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
+    .filterBounds(locs_feature) #grab only wrs overlap with dp
+wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
+    
+pr = wrs.aggregate_array('PR').getInfo() #create PathRow lit that we're interested in
+```
+
+## Then load the Landsat C2 GEE Image Collections
+
 ```{python}
 #grab images and apply scaling factors
 l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')\
@@ -124,6 +136,7 @@ ls5 = l5.select(bn57, bns)
 ls7 = l7.select(bn57, bns)
 ls8 = l8.select(bn89, bns)
 ls9 = l9.select(bn89, bns)
+
 # merge collections and then filter to those that intersect with wrs path row combos; leaving out the cloud cover filter, as that's scene-level metadata and propbably unnecessary since we'll use the bitQA to filter pixels
 ls = ee.ImageCollection(ls5.merge(ls7).merge(ls8).merge(ls9))\
     .filterBounds(wrs)  
@@ -132,6 +145,15 @@ ls = ee.ImageCollection(ls5.merge(ls7).merge(ls8).merge(ls9))\
 # do a reality check to see how many unique scenes are here.    
 ls_count = ls.aggregate_count('LANDSAT_PRODUCT_ID').getInfo()
 print(ls_count)
+```
+
+Because GEE is finicky, we now have to separate out the stack into SR stack and ST stacks.
+
+```{python}
+srbns = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa'] #removing , 'aerosol_qa', 'radsat_qa' for now, because they aren't in use and GEE is picky.
+stbns = ['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','SurfTemp','temp_qa']
+ls_sr = ls.select(srbns)
+ls_st = ls.select(stbns)
 ```
 
 ## *Load functions*
@@ -172,6 +194,18 @@ def AddFmask(image):
     .updateMask(qa.gte(0))) #mask the fmask so that it has the same footprint as the quality (BQA) band
   return image.addBands(fmask)
   
+```
+
+#### Bitmask for thermal band estimates:
+
+```{python}
+def AddTmask(image):
+  #grab the temp_qa band
+  tqa = image.select('temp_qa')
+  #only pass through values less than 3 deg error
+  tmask = (tqa.lte(1).rename('tmask')
+    .updateMask(tqa.gte(0)))
+  return image.addBands(tmask)
 ```
 
 #### *Bandmath for Dswe:*
@@ -334,7 +368,7 @@ def RefPull(image):
             .addBands(dswe3)
             .addBands(dummy)
             .addBands(clouds))
-  combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp', 'pixel_qa', 'hillShadow']))
+  combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa', 'hillShadow']))
   .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['NirSD'])), 'sd_', False)
   .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['dswe3', 'dswe1'])), 'pCount_', False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds'])), 'cScore_', False))
@@ -344,6 +378,29 @@ def RefPull(image):
   out = lsout.map(removeGeo)
   return out
   
+```
+
+### *And also for TempPull*
+
+```{python}
+def TempPull(image):
+  # process image with tmask, and grab tmask band only
+  f = AddTmask(image).select('tmask')
+  # where the f mask is 1 (valid temp), call that 1 (otherwise 0) and rename as validTemp.
+  validTemp = f.eq(1).rename('validTemp')
+  d = Dswe(image).select('dswe')
+  newImage = image.select('SurfTemp')
+  pixOut = (newImage.addBands(validTemp)
+            .addBands(d)
+            .updateMask(d.eq(1)))
+  combinedReducer = ((ee.Reducer.median().unweighted().forEachBand(pixOut.select('SurfTemp')))
+    .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select('SurfTemp')), 'sd_', False)
+    .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select('SurfTemp')), 'pCount_', False))
+  # Collect median temp and occurance values
+  stout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
+  tempOut = stout.map(removeGeo)
+  return tempOut
+
 ```
 
 ### *Function to monitor running jobs in Earth Engine*
@@ -373,16 +430,6 @@ def maximum_no_of_tasks(MaxNActive, waitingPeriod):
 
 ```
 
-*Grab WRS tiles in descending (daytime) mode for CONUS*
-
-```{python}
-wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
-    .filterBounds(locs_feature) #grab only wrs overlap with dp
-wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
-    
-pr = wrs.aggregate_array('PR').getInfo() #create PathRow lit that we're interested in
-```
-
 ## *Grab the stacks.*
 
 *Set up a counter and list to keep track of what's been done already. We'll use this in case something is wonky and we need to run again.*
@@ -399,7 +446,7 @@ done = []
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
 ```
 
-*This chunk does the heavy lifting.*
+*This chunk does the heavy lifting for the reflectance pull*
 
 ```{python}
 for tiles in pr:
@@ -409,20 +456,53 @@ for tiles in pr:
   lakes = locs_feature.filterBounds(tile.geometry())\
     .map(dpBuff)
   # snip the ls data by the geometry of the lake points    
-  stack = ls.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
+  stack = ls_sr.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
   # map the refpull function across the 'stack', flatten to an array, filter to keep scenes with clouds less than 50%.
   out = stack.map(RefPull)\
     .flatten()\
     .filterMetadata('cScore_clouds','less_than',.5)
+  srname = 'SurfRef_'+str(tiles)+'_v'+str(date.today())
   dataOut = ee.batch.Export.table.toDrive(collection = out,\
-                                          description = str(tiles),\
+                                          description = srname,\
                                           folder = 'LakeReflRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index'])
-  #Check how many existing tasks are running and take a break if it's >25  
+                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'hillShadow', 'sd_NirSD','cScore_clouds','pCount_dswe3','pCount_dswe1','system:index'])
+  
+  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
-  #Send next task.
+  #Send next task.                                        
   dataOut.start()
+  counter = counter + 1
+  done.append(tiles)
+  print('done_' + str(counter) + '_' + str(tiles))
+  
+print('done')
+```
+
+*And then this chunk does the heavy lifting for the temp pull*
+
+```{python}
+for tiles in pr:
+  tile = wrs.filterMetadata('PR', 'equals', tiles)
+  # For some reason we need to cast this to a list and back to a
+  # feature collection
+  lakes = locs_feature.filterBounds(tile.geometry())\
+    .map(dpBuff)
+  # snip the ls data by the geometry of the lake points    
+  stack = ls_st.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
+  # map the temppull across the stack
+  tempOut = stack.map(TempPull)\
+    .flatten()
+  stname = 'SurfTemp_'+str(tiles)+'_v'+str(date.today())
+  tempDataOut = ee.batch.Export.table.toDrive(collection = tempOut,\
+                                          description = stname,\
+                                          folder = 'LakeTempRepo',\
+                                          fileFormat = 'csv',\
+                                          selectors = ['SurfTemp','sd_SurfTemp', 'pCount_SurfTemp', 'system:index'])
+  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
+  maximum_no_of_tasks(25, 120)
+  #Send next task.                                        
+  tempDataOut.start()
   counter = counter + 1
   done.append(tiles)
   print('done_' + str(counter) + '_' + str(tiles))
