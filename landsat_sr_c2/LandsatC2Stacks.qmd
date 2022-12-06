@@ -41,7 +41,7 @@ from datetime import date
 ee.Initialize()
 ```
 
-## *Load in location data*
+### *Load in location data*
 
 *Read in lat/lon file and create an EE asset. Location file must use the column names 'Latitude' and 'Longitude', otherwise make sure you rename them before running the function.*
 
@@ -55,6 +55,17 @@ locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude', 'Name':'name
 #give this a short project name (for file naming conventions)
 proj = 'CPF'
 
+```
+
+### **The remaining code will need to be run, but you won't have to alter any of the code below in order to output files to your Google Drive unless you want to change any of the settings of the tool.**
+
+------------------------------------------------------------------------
+
+## *Prepare your site data*
+
+Transform the site location .csv into a GEE feature
+
+```{python}
 def csv_to_eeFeat(df):
   features=[]
   for i in range(df.shape[0]):
@@ -73,7 +84,7 @@ locs_feature = csv_to_eeFeat(locs)
 locs_feature.getInfo()
 ```
 
-## *Load in Landsat collections*
+## *Load in Landsat Collections*
 
 *Grab all Landsat Collection 2 image collections, apply scaling factors, and harmonize band names and definitions*
 
@@ -163,9 +174,9 @@ def dpBuff(i):
   
 ```
 
-### ***Functions referenced in RefPull function:***
+#### ***Functions referenced in RefPull function:***
 
-#### *Bit Mask for image quality for :*
+##### *Bit Mask for image quality for reflectance data:*
 
 ```{python}
 # create a mask for the images, based on the pixel QA bits.
@@ -190,9 +201,9 @@ def AddFmask(image):
   
 ```
 
-#### Bitmask for thermal band estimates:
+##### Bitmask for thermal band estimates:
 
-This is very similar to the reflectance band mask, but we'll add the temp_qa band info into the mask.
+##### This is very similar to the reflectance band mask, but we'll add the temp_qa band info into the mask.
 
 ```{python}
 def AddTMask(image):
@@ -220,7 +231,7 @@ def AddTMask(image):
   return image.addBands(tmask)
 ```
 
-#### *Bandmath for Dswe:*
+##### *Bandmath for Dswe:*
 
 ```{python}
 def Mndwi(image):
@@ -247,7 +258,7 @@ def Awesh(image):
 
 ```
 
-#### *Dswe calc:*
+##### *Dswe calc:*
 
 ```{python}
 ## The DSWE Function itself    
@@ -315,7 +326,7 @@ def Dswe(i):
 
 ```
 
-#### *Dswe hillshade correction:*
+##### *Dswe hillshade correction:*
 
 ```{python}
 def CalcHillShades(image, geo):
@@ -328,7 +339,7 @@ def CalcHillShades(image, geo):
 
 ```
 
-#### *Dswe hillshadow correction:*
+##### *Dswe hillshadow correction:*
 
 ```{python}
 def CalcHillShadows(image, geo):
@@ -342,7 +353,7 @@ def CalcHillShadows(image, geo):
 
 ```
 
-#### *Function to remove geometry:*
+##### *Function to remove geometry:*
 
 ```{python}
 ## Remove geometries
@@ -392,7 +403,7 @@ def RefPull(image):
   
 ```
 
-### *And also for TempPull*
+### *Functions for TempPull:*
 
 ```{python}
 def TempPull(image):
@@ -448,7 +459,7 @@ def maximum_no_of_tasks(MaxNActive, waitingPeriod):
 
 ```
 
-## *Grab the stacks.*
+## *Run the GEE functions.*
 
 *Set up a counter and list to keep track of what's been done already. We'll use this in case something is wonky and we need to run again.*
 
@@ -464,7 +475,7 @@ done = []
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
 ```
 
-*This chunk does the heavy lifting for the reflectance pull*
+#### *Run the Reflectance Pull*
 
 ```{python}
 for tiles in pr:
@@ -497,7 +508,7 @@ for tiles in pr:
 print('done')
 ```
 
-*And then this chunk does the heavy lifting for the temp pull*
+#### *Run the temperature pull*
 
 ```{python}
 for tiles in pr:
@@ -516,7 +527,7 @@ for tiles in pr:
                                           description = stname,\
                                           folder = 'LakeTempRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['SurfTemp','sd_SurfTempSD', 'min_SurfTempMin', 'max_SurfTempMax', 'pCount_SurfTemp', 'system:index'])
+                                          selectors = ['SurfTemp','sd_SurfTemp', 'min_SurfTempMin', 'max_SurfTempMax', 'pCount_tmask', 'system:index'])
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
   #Send next task.                                        
@@ -527,3 +538,5 @@ for tiles in pr:
   
 print('done')
 ```
+
+That's it! Your GEE tasks are now running [here](https://code.earthengine.google.com/tasks) and the output will show up in your Google Drive.
