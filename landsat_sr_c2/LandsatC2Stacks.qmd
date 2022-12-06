@@ -47,7 +47,7 @@ ee.Initialize()
 
 ```{python}
 #point to file - must contin Latitude, Longitude, comid, and name
-locs_file = 'upper_poudre_lakes.csv'
+locs_file = 'sites/upper_poudre_lakes_v2.csv'
 locs = read_csv(locs_file)
 #rename to required cols
 locs = locs.rename(columns = {'Lat':'Latitude', 'Long':'Longitude', 'Name':'name'})
@@ -60,7 +60,7 @@ def csv_to_eeFeat(df):
   for i in range(df.shape[0]):
     x,y = df.Longitude[i],df.Latitude[i]
     latlong =[x,y]
-    loc_properties = {'name':df.name[i], 'comid':str(df.comid[i])}
+    loc_properties = {'system:index':str(df.comid[i]), 'name':df.name[i], 'comid':str(df.comid[i])}
     g=ee.Geometry.Point(latlong) 
     feature = ee.Feature(g, loc_properties)
     features.append(feature)
@@ -150,25 +150,16 @@ ls_count = ls.aggregate_count('LANDSAT_PRODUCT_ID').getInfo()
 print(ls_count)
 ```
 
-Because GEE is finicky, we now have to separate out the stack into SR stack and ST stacks.
-
-```{python}
-srbns = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa'] #removing , 'aerosol_qa', 'radsat_qa' for now, because they aren't in use and GEE is picky.
-stbns = ['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','SurfTemp','temp_qa']
-ls_sr = ls.select(srbns)
-ls_st = ls.select(stbns)
-```
-
 ## *Load functions*
 
-#### *Location buffer*
+#### *General functions:*
 
 *To buffer lat/longs:*
 
 ```{python}
 ## Buffer the lake sites
 def dpBuff(i):
-  return i.buffer(120) #doing a 50m buffer for this project
+  return i.buffer(90) #doing a 90m buffer for general use
   
 ```
 
@@ -201,13 +192,31 @@ def AddFmask(image):
 
 #### Bitmask for thermal band estimates:
 
+This is very similar to the reflectance band mask, but we'll add the temp_qa band info into the mask.
+
 ```{python}
-def AddTmask(image):
+def AddTMask(image):
   #grab the temp_qa band
   tqa = image.select('temp_qa')
-  #only pass through values less than 2 deg error
-  tmask = (tqa.lte(2).rename('tmask')
-    .updateMask(tqa.gte(0)))
+  #grab just the pixel_qa info
+  qa = image.select('pixel_qa')
+  # water bit is in pos 7, so move 1 7 spaces to the left and test
+  water = qa.bitwiseAnd(1 << 7) 
+  # cloud is bit 3
+  cloud = qa.bitwiseAnd(1 << 3)
+  #snow is bit 5
+  snow = qa.bitwiseAnd(1 << 5)
+  #cloud shadow is bit 4
+  cloudshadow = qa.bitwiseAnd(1 << 4)
+  #create bitmask as additional bands
+  tmask = (water.gt(0).rename(['tmask']) #FIND WATER!
+    .where(snow.gt(0), ee.Image(0)) #where there's snow give it a value of 0
+    .where(cloudshadow.gt(0), ee.Image(0)) # and cloud shadows
+    .where(cloud.gt(0), ee.Image(0)) #and clouds
+    .updateMask(water.gt(0))) #mask the fmask so that it has the same footprint as the quality (BQA) band
+  #add mask to include only pixels with error less than 1deg C
+  tmask = tmask.updateMask(tqa.lte(1))
+  #return the image with the tmask as a band
   return image.addBands(tmask)
 ```
 
@@ -387,18 +396,25 @@ def RefPull(image):
 
 ```{python}
 def TempPull(image):
-  # process image with tmask, and grab tmask band only
-  f = AddTmask(image).select('tmask')
-  # where the f mask is 1 (valid temp), call that 1 (otherwise 0) and rename as validTemp.
-  validTemp = f.eq(1).rename('validTemp')
+  # process image with tmask to mask out nonvalid pixels
+  t = AddTMask(image).select('tmask')
   d = Dswe(image).select('dswe')
+  #grab only the surface temperature band
   newImage = image.select('SurfTemp')
-  pixOut = (newImage.addBands(validTemp)
+  pixOut = (newImage.addBands(newImage.select(['SurfTemp'], ['SurfTempMin'])) #create dupe bands with new names
+            .addBands(newImage.select(['SurfTemp'], ['SurfTempMax']))
+            .addBands(newImage.select(['SurfTemp'], ['SurfTempSD']))
+            #add dswe and grab where dswe = 1 (water is detected)
             .addBands(d)
-            .updateMask(d.eq(1)))
-  combinedReducer = ((ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select('SurfTemp').rename('sd_SurfTemp')))
-    .combine(ee.Reducer.median().unweighted().forEachBand(pixOut.select('SurfTemp')), 'med_', False)
-    .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select('SurfTemp')), 'pCount_', False))
+            .updateMask(d.eq(1))
+            #add tmask and grab where tmask = 1 (pixel qa and temp qa band mask)
+            .addBands(t)
+            .updateMask(t.eq(1)))
+  combinedReducer = ((ee.Reducer.median().unweighted().forEachBand(pixOut.select(['SurfTemp'])))
+    .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['SurfTempMin'])),'min_', False)
+    .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['SurfTempMax'])),'max_', False)
+    .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['SurfTempSD'])), 'sd_', False)
+    .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['tmask'])), 'pCount_', False))
   # Collect median temp and occurance values
   stout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
   tempOut = stout.map(removeGeo)
@@ -501,7 +517,7 @@ for tiles in pr:
                                           description = stname,\
                                           folder = 'LakeTempRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['med_SurfTemp','sd_SurfTemp', 'pCount_SurfTemp', 'system:index'])
+                                          selectors = ['SurfTemp','sd_SurfTempSD', 'min_SurfTempMin', 'max_SurfTempMax', 'pCount_SurfTemp', 'system:index'])
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
   #Send next task.                                        
