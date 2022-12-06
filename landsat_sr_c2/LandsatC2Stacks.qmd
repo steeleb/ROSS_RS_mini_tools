@@ -221,12 +221,11 @@ def AddTMask(image):
   cloudshadow = qa.bitwiseAnd(1 << 4)
   #create bitmask as additional bands
   tmask = (water.gt(0).rename(['tmask']) #FIND WATER!
-    .where(snow.gt(0), ee.Image(0)) #where there's snow give it a value of 0
-    .where(cloudshadow.gt(0), ee.Image(0)) # and cloud shadows
-    .where(cloud.gt(0), ee.Image(0)) #and clouds
-    .updateMask(water.gt(0))) #mask the fmask so that it has the same footprint as the quality (BQA) band
-  #add mask to include only pixels with error less than 1deg C
-  tmask = tmask.updateMask(tqa.lte(1))
+    .where(tqa.lt(1), ee.Image(1)) #where error is less than 1, store valueof 1
+    .where(snow.gt(0), ee.Image(2)) #where there is snow, store a value of 2
+    .where(cloudshadow.gt(0), ee.Image(2)) #where there are cloudshadows, store a value of 2
+    .where(cloud.gt(0), ee.Image(2)) #where there are clouds, store a value of 2
+    .updateMask(qa.gte(0))) #mask the fmask so that it has the same footprint as the quality (BQA) band
   #return the image with the tmask as a band
   return image.addBands(tmask)
 ```
