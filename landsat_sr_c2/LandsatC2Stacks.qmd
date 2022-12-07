@@ -413,8 +413,8 @@ def TempPull(image):
   newImage = image.select('SurfTemp')
   pixOut = (newImage.addBands(newImage.select(['SurfTemp'], ['SurfTempMin'])) #create dupe bands with new names to keep GEE happy
             .addBands(newImage.select(['SurfTemp'], ['SurfTempMax']))
+            .addBands(newImage.select(['SurfTemp'], ['SurfTempSD']))
             #add dswe and grab where dswe = 1 (water is detected)
-            .addBands(d)
             .updateMask(d.eq(1))
             #add tmask and grab where tmask = 1 (pixel qa and temp qa band mask)
             .addBands(t)
@@ -422,7 +422,7 @@ def TempPull(image):
   combinedReducer = ((ee.Reducer.median().unweighted().forEachBand(pixOut.select(['SurfTemp'])))
     .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['SurfTempMin'])),'min_', False)
     .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['SurfTempMax'])),'max_', False)
-    .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['SurfTemp'])), 'sd_', False)
+    .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['SurfTempSD'])), 'sd_', False)
     .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['tmask'])), 'pCount_', False))
   # Collect median temp and occurance values
   stout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
@@ -484,7 +484,7 @@ for tiles in pr:
   lakes = locs_feature.filterBounds(tile.geometry())\
     .map(dpBuff)
   # snip the ls data by the geometry of the lake points    
-  stack = ls_sr.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
+  stack = ls.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
   # map the refpull function across the 'stack', flatten to an array, filter to keep scenes with clouds less than 50%.
   out = stack.map(RefPull)\
     .flatten()\
@@ -517,7 +517,7 @@ for tiles in pr:
   lakes = locs_feature.filterBounds(tile.geometry())\
     .map(dpBuff)
   # snip the ls data by the geometry of the lake points    
-  stack = ls_st.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
+  stack = ls.filterBounds(lakes.geometry()) #this was preivously filtered by the centroid of the tile
   # map the temppull across the stack
   tempOut = stack.map(TempPull)\
     .flatten()
@@ -526,7 +526,7 @@ for tiles in pr:
                                           description = stname,\
                                           folder = 'LakeTempRepo',\
                                           fileFormat = 'csv',\
-                                          selectors = ['SurfTemp','sd_SurfTemp', 'min_SurfTempMin', 'max_SurfTempMax', 'pCount_tmask', 'system:index'])
+                                          selectors = ['SurfTemp','sd_SurfTempSD', 'min_SurfTempMin', 'max_SurfTempMax', 'pCount_tmask', 'system:index'])
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(25, 120)
   #Send next task.                                        
