@@ -5,4 +5,6 @@
 .Ruserdata
 .DS_Store
 */.DS_Store
-landsat_sr_c2/env/
+*/env/
+*/SurfTemp/*
+*/sites/*
