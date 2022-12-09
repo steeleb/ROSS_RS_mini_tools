@@ -49,7 +49,8 @@ ee.Initialize()
 #point to file - must contin Latitude, Longitude, comid, and name
 locs_file = 'sites/ReservoirLocations.csv'
 locs = read_csv(locs_file)
-#rename to required cols
+
+#rename to required cols Latitude, Longitude, comid, name
 locs = locs.rename(columns = {'NW_res':'name', 'id':'comid'})
 
 #give this a short project name (for file naming conventions)
@@ -61,7 +62,7 @@ proj = 'NASA-NW'
 
 ------------------------------------------------------------------------
 
-## *Prepare your site data*
+### *Prepare your site data*
 
 Transform the site location .csv into a GEE feature
 
@@ -91,7 +92,7 @@ locs_feature.getInfo()
 First, load a few functions
 
 ```{python}
-#need to create some extra bands for ls 5 and 7 so that they play nice with ls8/9
+#need to create some extra bands for ls 4, 5 and 7 so that they play nice with ls8/9
 dummyBands = ee.Image(-99).rename('Null_CS')\
     .addBands(ee.Image(-99).rename('Null_TIR2'))\
     .addBands(ee.Image(-99).rename('aerosol_qa'))
@@ -136,23 +137,27 @@ l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')\
 l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')\
     .map(applyScaleFactors)\
     .map(addDummy)
+l4 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')\
+    .map(applyScaleFactors)\
+    .map(addDummy)
     
 #Standardize band names between the various collections and aggregate 
 #them into one image collection
 #current names (in order of new names)
 bn89 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10', 'QA_PIXEL', 'SR_QA_AEROSOL', 'QA_RADSAT', 'ST_QA']
-bn57 = ['Null_CS', 'SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'QA_PIXEL', 'aerosol_qa', 'QA_RADSAT', 'ST_QA']
+bn457 = ['Null_CS', 'SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'QA_PIXEL', 'aerosol_qa', 'QA_RADSAT', 'ST_QA']
 #new names
 bns = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfTemp','pixel_qa', 'aerosol_qa', 'radsat_qa', 'temp_qa']
   
 # rename bands  
-ls5 = l5.select(bn57, bns)
-ls7 = l7.select(bn57, bns)
+ls4 = l4.select(bn457, bns)
+ls5 = l5.select(bn457, bns)
+ls7 = l7.select(bn457, bns)
 ls8 = l8.select(bn89, bns)
 ls9 = l9.select(bn89, bns)
 
 # merge collections and then filter to those that intersect with wrs path row combos; leaving out the cloud cover filter, as that's scene-level metadata and propbably unnecessary since we'll use the bitQA to filter pixels
-ls = ee.ImageCollection(ls5.merge(ls7).merge(ls8).merge(ls9))\
+ls = ee.ImageCollection(ls4.merge(ls5).merge(ls7).merge(ls8).merge(ls9))\
     .filterBounds(wrs)  
     #.filter(ee.Filter.lt('CLOUD_COVER', 75))\
     
@@ -205,7 +210,7 @@ def AddFmask(image):
 
 ##### Bitmask for thermal band estimates:
 
-##### This is very similar to the reflectance band mask, but we'll add the temp_qa band info into the mask.
+This is very similar to the reflectance band mask, but we'll add the temp_qa band info into the mask.
 
 ```{python}
 def AddTMask(image):
