@@ -7,13 +7,13 @@ jupyter: python3
 
 ## *Purpose*
 
-*Pull surface reflectance and surface temperature values for Landsat-visible lakes given user-provided locations. Code here is heavily borrowed from the script 'LakeExport.py' and 'GEE_reflectance_pull.py' from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) (Simon Topp).*
+*Pull surface temperature values for Landsat-visible lakes given user-provided locations. Code here is heavily borrowed from the script 'LakeExport.py' and 'GEE_reflectance_pull.py' from the [LakeReflectanceRepo](https://github.com/GlobalHydrologyLab/LakeReflectanceRepo) (Simon Topp).*
 
-*Updates in this script includes updating to Landsat Collection 2 and including the Landsat 9 mission. Additional feature adds are using the **ST_QA** band to mask less-accurate surface temperature (ST) pixels and adding a **RADSAT_QA** band filter to mask out saturated pixels.*
+*Updates in this script includes updating to Landsat Collection 2 and including the Landsat 4&9 missions. In this workflow, we process only the surface temp data, additional feature adds are using the **ST_QA** band to mask less-accurate surface temperature (ST) pixels. \[This workflow more aggressively limits near-shore pixels to reduce/eliminate mixed pixels with land due to the original pixel resolution.*
 
 ## *Requirements*
 
-*This code requires user to also have a bash shell open to run commands. I'm using VSCode, but you could use any other shell/command line terminal. There are some lingering inline requirements at this time, we'll figure that out later, but are noted along the way.*
+*This code requires user to also have a bash shell open to run commands. I'm using VSCode, but you could use any other shell/command line terminal. There are some lingering shell requirements at this time (probably due to qmd?), we'll figure that out later, but are noted along the way.*
 
 ## *Prepare!*
 
@@ -249,7 +249,7 @@ def Add457Fmask(image):
   csnow = cqa.bitwiseAnd(1 << 4)
   # add cloud qa to fmask
   cfmask = (water.gt(0).rename(['cfmask'])
-    .where(cwater.gt(0), ee.Image(1)) #FIND WATER!
+    .where(cwater.gt(0), ee.Image1(1)) #FIND WATER!
     .where(snow.gt(0), ee.Image(2))
     .where(csnow.gt(0), ee.Image(2)) #where there's snow give it a value of 2
     .where(cloudshadow.gt(0), ee.Image(3))
@@ -453,94 +453,6 @@ def removeGeo(i):
   
 ```
 
-### ***Pulling all the working functions together as RefPull:***
-
-#### For Landsat 4, 5, 7:
-
-```{python}
-## Set up the reflectance pull
-def RefPull457(image):
-  # process image with the radsat mask
-  r = AddRadMask(image).select('radsat')
-  # process image with fmask, and grab fmask band only
-  f = Add457Fmask(image).select('cfmask')
-  # where the f mask is > 2 (clouds and cloud shadow), call that 1 (otherwise 0) and rename as clouds.
-  clouds = f.gte(2).rename('clouds')
-  # add the f mask bands to clouds, then summarize the clouds to a mean value over the geometry of the lake location at a 30m resolution to determine what proportion of pixels are of poor quality
-  snow = f.eq(2).rename('snow')
-  #apply dswe function
-  d = Dswe(image).select('dswe')
-  #calculate hillshade
-  h = CalcHillShades(image, tile.geometry()).select('hillShade')
-  #calculate hillshadow
-  hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
-  # band where dswe is 3 and there are no clouds
-  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(clouds.eq(0)).updateMask(snow.eq(0)) 
-  pixOut = (image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa'])
-            .addBands(hs)
-            .addBands(image.select(['Nir'],['NirSD']))
-            .addBands(d)
-            .updateMask(d.eq(1)) #high confidence water
-            .addBands(clouds)
-            .updateMask(clouds.eq(0)) #no clouds
-            .addBands(snow)
-            .updateMask(snow.eq(0)) #no snow
-            .addBands(dswe3))
-  combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa']))
-  .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['NirSD'])), 'sd_', False)
-  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['dswe3', 'dswe'])), 'pCount_', False)
-  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds','hillShadow', 'snow'])), 'prop_', False))
-  # Collect median reflectance and occurance values
-  # Make a cloud score, and get the water pixel count
-  lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
-  out = lsout.map(removeGeo)
-  return out
-  
-```
-
-### For Landsat 8, 9:
-
-```{python}
-## Set up the reflectance pull
-def RefPull89(image):
-  # process image with the radsat mask
-  r = AddRadMask(image).select('radsat')
-  # process image with fmask, and grab fmask band only
-  f = Add89Fmask(image).select('afmask')
-  # where the f mask is > 2 (clouds and cloud shadow), call that 1 (otherwise 0) and rename as clouds.
-  clouds = f.gte(2).rename('clouds')
-  # add the f mask bands to clouds, then summarize the clouds to a mean value over the geometry of the lake location at a 30m resolution to determine what proportion of pixels are of poor quality
-  snow = f.eq(2).rename('snow')
-  #apply dswe function
-  d = Dswe(image).select('dswe')
-  #calculate hillshade
-  h = CalcHillShades(image, tile.geometry()).select('hillShade')
-  #calculate hillshadow
-  hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
-  # band where dswe is 3 and there are no clouds
-  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(clouds.eq(0)).updateMask(snow.eq(0)) 
-  pixOut = (image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa'])
-            .addBands(hs)
-            .addBands(image.select(['Nir'],['NirSD']))
-            .addBands(d)
-            .updateMask(d.eq(1)) #high confidence water
-            .addBands(clouds)
-            .updateMask(clouds.eq(0)) #no clouds
-            .addBands(snow)
-            .updateMask(snow.eq(0)) #no snow
-            .addBands(dswe3))
-  combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa']))
-  .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['NirSD'])), 'sd_', False)
-  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['dswe3', 'dswe'])), 'pCount_', False)
-  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds','hillShadow', 'snow'])), 'prop_', False))
-  # Collect median reflectance and occurance values
-  # Make a cloud score, and get the water pixel count
-  lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
-  out = lsout.map(removeGeo)
-  return out
-  
-```
-
 ### *Functions for TempPull:*
 
 ```{python}
@@ -611,70 +523,6 @@ done = []
 
 ```{python}
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
-```
-
-### Run the Reflectance Pull for 457
-
-```{python}
-for tiles in pr:
-  tile = wrs.filterMetadata('PR', 'equals', tiles)
-  # For some reason we need to cast this to a list and back to a
-  # feature collection
-  lakes = locs_feature.filterBounds(tile.geometry())\
-    .map(dpBuff)
-  # snip the ls data by the geometry of the lake points    
-  stack = ls457.filterBounds(lakes.geometry()) 
-  # map the refpull function across the 'stack', flatten to an array,
-  out = stack.map(RefPull457)\
-    .flatten()
-  srname = proj+'_SurfRef457_'+str(tiles)+'_v'+str(date.today())
-  dataOut = ee.batch.Export.table.toDrive(collection = out,\
-                                          description = srname,\
-                                          folder = 'LakeReflRepo',\
-                                          fileFormat = 'csv',\
-                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'sd_NirSD','prop_clouds','prop_hillShadow', 'prop_snow','pCount_dswe1', 'pCount_dswe3','system:index'])
-  
-  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
-  maximum_no_of_tasks(25, 120)
-  #Send next task.                                        
-  dataOut.start()
-  counter = counter + 1
-  done.append(tiles)
-  print('done_' + str(counter) + '_' + str(tiles))
-  
-print('done')
-```
-
-### Run the Reflectance Pull for 89
-
-```{python}
-for tiles in pr:
-  tile = wrs.filterMetadata('PR', 'equals', tiles)
-  # For some reason we need to cast this to a list and back to a
-  # feature collection
-  lakes = locs_feature.filterBounds(tile.geometry())\
-    .map(dpBuff)
-  # snip the ls data by the geometry of the lake points    
-  stack = ls89.filterBounds(lakes.geometry()) 
-  # map the refpull function across the 'stack', flatten to an array,
-  out = stack.map(RefPull89)\
-    .flatten()
-  srname = proj+'_SurfRef89_'+str(tiles)+'_v'+str(date.today())
-  dataOut = ee.batch.Export.table.toDrive(collection = out,\
-                                          description = srname,\
-                                          folder = 'LakeReflRepo',\
-                                          fileFormat = 'csv',\
-                                          selectors = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'sd_NirSD','prop_clouds','prop_hillShadow', 'prop_snow','pCount_dswe1', 'pCount_dswe3','system:index'])
-  
-  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
-  maximum_no_of_tasks(25, 120)
-  #Send next task.                                        
-  dataOut.start()
-  counter = counter + 1
-  done.append(tiles)
-  print('done_' + str(counter) + '_' + str(tiles))
-  
-print('done')
 ```
 
 ### Run the temperature pull
