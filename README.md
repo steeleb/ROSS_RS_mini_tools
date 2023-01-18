@@ -2,6 +2,14 @@
 
 Useful remote sensing tools created by the ROSSyndicate.
 
+
+## HLS 
+
+*Contact: B Steele*
+*Status: Development*
+
+Scripts for accessing, downloading, and processing HLS (Harmonized Landsat-Sentinel) data.
+
 ## landsat_c2
 
 *Contact: B Steele*
