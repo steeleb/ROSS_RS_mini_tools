@@ -272,38 +272,54 @@ def srCloudMask(image):
 
 ```
 
-#### *Bandmath functions for Dswe:*
+#### *Bandmath functions for Dswe:* 
+
+DSWE functions (from Sam Sillen, adpated from S Topp). Note that you must use image expression, not normalizedDifference, otherwise you end up with too many false negatives!
 
 ```{python}
+# modified normalized difference water index
 def Mndwi(image):
-  return image.normalizedDifference(['Green', 'Swir1']).rename('mndwi')
-  
+  return (image.expression('(GREEN - SWIR1) / (GREEN + SWIR1)', {
+    'GREEN': image.select(['Green']),
+    'SWIR1': image.select(['Swir1'])
+  }))
+
+
+# multi-band Spectral Relationship Visible
 def Mbsrv(image):
-  return image.select(['Green']).add(image.select(['Red'])).rename('mbsrv')
-  
+  return (image.select(['Green']).add(image.select(['Red'])).rename('mbsrv'))
+
+
+# Multi-band Spectral Relationship Near infrared
 def Mbsrn(image):
-  return image.select(['Nir']).add(image.select(['Swir1'])).rename('mbsrn')
+  return (image.select(['Nir']).add(image.select(['Swir1'])).rename('mbsrn'))
 
+
+# Normalized Difference Vegetation Index
 def Ndvi(image):
-  return image.normalizedDifference(['Nir', 'Red']).rename('ndvi')
+  return (image.expression('(NIR - RED) / (NIR + RED)', {
+    'RED': image.select(['Red']),
+    'NIR': image.select(['Nir'])
+  }))
 
+
+# Automated Water Extent Shadow
 def Awesh(image):
-  return (image.addBands(Mbsrn(image))
-  .expression('Blue + 2.5 * Green + (-1.5) * mbsrn + (-0.25) * Swir2', {
+  return (image.expression('Blue + 2.5 * Green + (-1.5) * mbsrn + (-0.25) * Swir2', {
     'Blue': image.select(['Blue']),
     'Green': image.select(['Green']),
     'mbsrn': Mbsrn(image).select(['mbsrn']),
     'Swir2': image.select(['Swir2'])
-    }))
+  }))
 
 
 ```
 
-##### *Dswe calc:*
+#### *DSWE: calculation of Dynamic Surface Water Extent*
 
 ```{python}
 ## The DSWE Function itself    
-def Dswe(i):
+def DSWE(i):
   mndwi = Mndwi(i)
   mbsrv = Mbsrv(i)
   mbsrn = Mbsrn(i)
@@ -313,19 +329,26 @@ def Dswe(i):
   ndvi = Ndvi(i)
   blue = i.select(['Blue'])
   swir2 = i.select(['Swir2'])
-  t1 = mndwi.gt(0.124)
-  t2 = mbsrv.gt(mbsrn)
-  t3 = awesh.gt(0)
-  t4 = (mndwi.gt(-0.44)
-    .And(swir1.lt(900))
-    .And(nir.lt(1500))
-    .And(ndvi.lt(0.7)))
-  t5 = (mndwi.gt(-0.5)
-    .And(blue.lt(1000))
-    .And(swir1.lt(3000))
-    .And(swir2.lt(1000))
-    .And(nir.lt(2500)))
-  t = t1.add(t2.multiply(10)).add(t3.multiply(100)).add(t4.multiply(1000)).add(t5.multiply(10000))
+  # These thresholds are taken from the LS Collection 2 DSWE Data Format Control Book:
+  # (https:#d9-wret.s3.us-west-2.amazonaws.com/assets/palladium/production/s3fs-public/media/files/LSDS-2042_LandsatC2_L3_DSWE_DFCB-v2.pdf)
+  # Inputs are meant to be scaled reflectance values 
+  t1 = mndwi.gt(0.124); # MNDWI greater than Wetness Index Threshold
+  t2 = mbsrv.gt(mbsrn); # MBSRV greater than MBSRN
+  t3 = awesh.gt(0); #AWESH greater than 0
+  t4 = (mndwi.gt(-0.44)  #Partial Surface Water 1 thresholds
+   .and(swir1.lt(0.09)) #900 for no scaling (LS Collection 1)
+   .and(nir.lt(0.15)) #1500 for no scaling (LS Collection 1)
+   .and(ndvi.lt(0.7)));
+  t5 = (mndwi.gt(-0.5) #Partial Surface Water 2 thresholds
+   .and(blue.lt(0.1)) #1000 for no scaling (LS Collection 1)
+   .and(swir1.lt(0.3)) #3000 for no scaling (LS Collection 1)
+   .and(swir2.lt(0.1)) #1000 for no scaling (LS Collection 1)
+   .and(nir.lt(0.25))); #2500 for no scaling (LS Collection 1)
+  t = (t1
+    .add(t2.multiply(10))
+    .add(t3.multiply(100))
+    .add(t4.multiply(1000))
+    .add(t5.multiply(10000)))
   noWater = (t.eq(0)
     .Or(t.eq(1))
     .Or(t.eq(10))
