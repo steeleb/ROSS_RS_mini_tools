@@ -154,6 +154,16 @@ lakes_feat = ee.FeatureCollection(features)
 
 ```
 
+Grab WRS tiles (these are the 'path' and 'rows' that Landsat operates on) in descending (daytime) mode for CONUS. We'll use the path-row information to subset data later on to prevent GEE from hanging due to information overload.
+
+```{python}
+wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
+    .filterBounds(lakes_feat) #grab only wrs overlap with dp
+wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
+    
+pr = wrs.aggregate_array('PR').getInfo() #create PathRow list
+```
+
 ## *Load in Landsat Collections*
 
 Grab all Landsat Collection 2 image collections, apply scaling factors, and harmonize band names and definitions
@@ -166,18 +176,6 @@ def applyScaleFactors(image):
   opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2)
   return image.addBands(opticalBands, None, True)
 ```
-
-Grab WRS tiles (these are the 'path' and 'rows' that Landsat operates on) in descending (daytime) mode for CONUS. We'll use the path-row information to subset data later on to prevent GEE from hanging due to information overload.
-
-```{python}
-wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
-    .filterBounds(lakes_feat) #grab only wrs overlap with dp
-wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
-    
-pr = wrs.aggregate_array('PR').getInfo() #create PathRow list
-```
-
-## *Then load the Landsat C2 GEE Image Collections*
 
 ```{python}
 #grab images and apply scaling factors
