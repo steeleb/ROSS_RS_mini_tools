@@ -249,7 +249,7 @@ def Add457Fmask(image):
   csnow = cqa.bitwiseAnd(1 << 4)
   # add cloud qa to fmask
   cfmask = (water.gt(0).rename(['cfmask'])
-    .where(cwater.gt(0), ee.Image1(1)) #FIND WATER!
+    .where(cwater.gt(0), ee.Image(1)) #FIND WATER!
     .where(snow.gt(0), ee.Image(2))
     .where(csnow.gt(0), ee.Image(2)) #where there's snow give it a value of 2
     .where(cloudshadow.gt(0), ee.Image(3))
