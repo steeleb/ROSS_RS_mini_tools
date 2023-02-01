@@ -225,9 +225,10 @@ def dpBuff(i):
 ```{python}
 def addRadMask(image):
   #grab the radsat band
-  satQA = image.select('radsat').eq(0)
+  satQA = image.select('radsat_qa')
   # all must be non-saturated per pixel
-  return image.updateMask(satQA)
+  satMask = satQA.eq(0).rename('radsat')
+  return image.addBands(satMask).updateMask(satMask)
 
 ```
 
@@ -238,14 +239,12 @@ def addRadMask(image):
 def cfMask(image):
   #grab just the pixel_qa info
   qa = image.select('pixel_qa')
-  #grab just the pixel_qa info
-  qa = image.select('pixel_qa')
-  cloudqa = (qa.bitwiseAnd(1 << 1).rename('cfmask') #dialated clouds
-    .where(qa.bitwiseAnd(1 << 3), ee.Image(3)) # clouds
-    .where(qa.bitwiseAnd(1 << 4), ee.Image(4)) # cloud shadows
-    .where(qa.bitwiseAnd(1 << 5), ee.Image(5))) # snow/ice
+  cloudqa = (qa.bitwiseAnd(1 << 1).rename('cfmask') #dialated clouds value 1
+    .where(qa.bitwiseAnd(1 << 3), ee.Image(2)) # clouds value 2
+    .where(qa.bitwiseAnd(1 << 4), ee.Image(3)) # cloud shadows value 3
+    .where(qa.bitwiseAnd(1 << 5), ee.Image(4))) # snow value 4
   qaMask = cloudqa.eq(0)
-  return image.updateMask(qaMask).addBands(cloudqa)
+  return image.addBands(cloudqa).addBands(qaMask)
   
 ```
 
@@ -255,7 +254,7 @@ def cfMask(image):
 # Filter out sr cloud qa issues -- these come from atm corr processing; however the pixel QA is still more resilient than these. 
 # Use this as a secondary filter on top of pixel qa to mask out invalid pixels during atm correction
 def srCloudMask(image):
-  srCloudQA = image.select('cloud_qa');
+  srCloudQA = image.select('cloud_qa')
   srcloud = (srCloudQA.bitwiseAnd(1 << 1) # cloud
     .where(srCloudQA.bitwiseAnd(1 << 2), ee.Image(2)) # cloud shadow
     .where(srCloudQA.bitwiseAnd(1 << 3), ee.Image(3)) # adjacent to cloud
@@ -426,43 +425,54 @@ def removeGeo(i):
 def RefPull457(image):
   # process image with the radsat mask
   r = addRadMask(image).select('radsat')
-  # process image with fmask, and grab fmask band only
+  # process image with cfmask
   f = cfMask(image).select('cfmask')
+  # process image with st SR cloud mask
   s = srCloudMask(image).select('sr_cloud')
   # where the f mask is > 2 (clouds and cloud shadow), call that 1 (otherwise 0) and rename as clouds.
-  clouds = f.gte(2).rename('clouds')
-  # add the f mask bands to clouds, then summarize the clouds to a mean value over the geometry of the lake location at a 30m resolution to determine what proportion of pixels are of poor quality
-  snow = f.eq(2).rename('snow')
+  clouds = f.gt(1).rename('clouds')
   #apply dswe function
   d = DSWE(image).select('dswe')
   #calculate hillshade
   h = CalcHillShades(image, tile.geometry()).select('hillShade')
   #calculate hillshadow
   hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
-  # band where dswe is 3 and there are no clouds
-  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(clouds.eq(0)).updateMask(snow.eq(0)).updateMask(s.eq(0))
+  # band where dswe is 3 and apply all masks
+  dswe3 = d.eq(3).rename('dswe3').selfMask()
   pixOut = (image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])
+            # make some dummy bands for the reducer
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
             ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2']))
             .addBands(hs)
             .addBands(d)
             .addBands(clouds)
-            .addBands(snow)
-            .addBands(s)
             .addBands(dswe3)
+            .updateMask(r.eq(1)) #1 == no saturated pixels
             .updateMask(d.eq(1)) #high confidence water
-            .updateMask(clouds.eq(0)) #no clouds
-            .updateMask(snow.eq(0)) #no snow
+            .updateMask(f.eq(0)) #no snow or clouds
             .updateMask(s.eq(0))) # no SR processing artefacts
-            
+  
   combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
-  .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])), 'min_', False)
-  .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])), 'max_', False)
-  .combine(ee.Reducer.percentile([25]).forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])), 'Q1_', False)
-  .combine(ee.Reducer.percentile([75]).forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])), 'Q3_', False)
-  .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])), 'sd_', False)
-  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['dswe3', 'dswe', 'Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])), 'pCount_', False)
-  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds','hillShadow', 'snow'])), 'prop_', False))
+  .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.percentile([25]).unweighted().forEachBand(pixOut.select(['Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.percentile([75]).unweighted().forEachBand(pixOut.select(['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','dswe', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
+  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['hillShadow', 'clouds'])), outputPrefix = 'prop_', sharedInputs = False))
   # Collect median reflectance and occurance values
   # Make a cloud score, and get the water pixel count
   lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
@@ -538,7 +548,8 @@ for tiles in pr:
                                           'Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2',
                                           'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
                                           'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
-                                          'prop_clouds','prop_hillShadow', 'prop_snow','pCount_dswe1', 'pCount_dswe3','system:index']))
+                                          'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
+                                          'prop_clouds','prop_hillShadow', 'prop_snow','pCount_dswe', 'pCount_dswe3','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
