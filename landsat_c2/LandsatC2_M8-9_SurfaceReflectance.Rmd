@@ -1,5 +1,5 @@
 ---
-title: "Pull Landsat Collection 2 Surface Reflectance Stacks for Missions 4-7"
+title: "Pull Landsat Collection 2 Surface Reflectance Stacks for Missions 8 and 9"
 author: "B Steele"
 format: html
 jupyter: python3
@@ -177,33 +177,30 @@ wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (dayti
 pr = wrs.aggregate_array('PR').getInfo() #create PathRow list
 ```
 
-## Then load the Landsat C2 GEE Image Collections
+## *Then load the Landsat C2 GEE Image Collections*
 
 ```{python}
 #grab images and apply scaling factors
-l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')\
+l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')\
     .map(applyScaleFactors)
-l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')\
+l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')\
     .map(applyScaleFactors)
-l4 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')\
-    .map(applyScaleFactors)
-    
+
 # merge collections by image processing groups
-ls457 = ee.ImageCollection(l4.merge(l5).merge(l7))\
-    .filterBounds(wrs)  
+ls89 = ee.ImageCollection(l8.merge(l9)).filterBounds(wrs)  
     
 # existing band names
-bn457 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'QA_PIXEL', 'SR_CLOUD_QA', 'QA_RADSAT']
+bn89 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'QA_PIXEL', 'SR_QA_AEROSOL', 'QA_RADSAT']
 # new band names
-bns = ['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa', 'cloud_qa', 'radsat_qa']
-  
+bns = ['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','pixel_qa', 'aerosol_qa', 'radsat_qa']
+ 
 # rename bands  
-ls457 = ls457.select(bn457, bns)
+ls89 = ls89.select(bn89, bns)
 
 # do a reality check to see how many unique scenes are here. This can take a few seconds to run if it's a large area - I don't suggest this if the length of your WRS object is >5.
 if len(pr) <= 5 :
-  ls457_count = ls457.aggregate_count('LANDSAT_PRODUCT_ID').getInfo()
-  print(ls457_count)
+  ls89_count = ls89.aggregate_count('LANDSAT_PRODUCT_ID').getInfo()
+  print(ls89_count)
 
 ```
 
@@ -240,24 +237,20 @@ def cfMask(image):
   #grab just the pixel_qa info
   qa = image.select('pixel_qa')
   cloudqa = (qa.bitwiseAnd(1 << 1).rename('cfmask') #dialated clouds value 1
-    .where(qa.bitwiseAnd(1 << 3), ee.Image(2)) # clouds value 2
-    .where(qa.bitwiseAnd(1 << 4), ee.Image(3)) # cloud shadows value 3
-    .where(qa.bitwiseAnd(1 << 5), ee.Image(4))) # snow value 4
+    .where(qa.bitwiseAnd(1 << 2), ee.Image(2)) #cirrus clouds value 2
+    .where(qa.bitwiseAnd(1 << 3), ee.Image(3)) # clouds value 3
+    .where(qa.bitwiseAnd(1 << 4), ee.Image(4)) # cloud shadows value 4
+    .where(qa.bitwiseAnd(1 << 5), ee.Image(5))) # snow value 5
   return image.addBands(cloudqa)
 ```
 
-#### srCloudMask: function to use cloud_qa band
+#### srAerosol: grabbing qualitative measure of aerosol Level
 
 ```{python}
-# Filter out sr cloud qa issues -- these come from atm corr processing; however the pixel QA is still more resilient than these. 
-# Use this as a secondary filter on top of pixel qa to mask out invalid pixels during atm correction
-def srCloudMask(image):
-  srCloudQA = image.select('cloud_qa')
-  srMask = (srCloudQA.bitwiseAnd(1 << 1).rename('sr_cloud') # cloud
-    .where(srCloudQA.bitwiseAnd(1 << 2), ee.Image(2)) # cloud shadow
-    .where(srCloudQA.bitwiseAnd(1 << 3), ee.Image(3)) # adjacent to cloud
-    .where(srCloudQA.bitwiseAnd(1 << 4), ee.Image(4))) # snow/ice
-  return image.addBands(srMask)
+def srAerosol(image):
+  aerosolQA = image.select('aerosol_qa')
+  medHighAero = aerosolQA.bitwiseAnd(1 << 7).rename('medHighAero')# pull out mask out where aeorosol is med and high
+  return image.addBands(medHighAero)
 ```
 
 #### *Bandmath functions for Dswe:*
@@ -414,17 +407,17 @@ def removeGeo(i):
   
 ```
 
-#### ***RefPull457: Pulling all the working functions together:***
+#### ***RefPull89: Pulling all the working functions together:***
 
 ```{python}
 ## Set up the reflectance pull
-def RefPull457(image):
+def RefPull89(image):
   # process image with the radsat mask
   r = addRadMask(image).select('radsat')
   # process image with cfmask
   f = cfMask(image).select('cfmask')
   # process image with st SR cloud mask
-  s = srCloudMask(image).select('sr_cloud')
+  a = srAerosol(image).select('medHighAero')
   # where the f mask is > 2 (clouds and cloud shadow), call that 1 (otherwise 0) and rename as clouds.
   clouds = f.gt(1).rename('clouds')
   #apply dswe function
@@ -435,40 +428,40 @@ def RefPull457(image):
   hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
   # band where dswe is 3 and apply all masks
   dswe3 = d.eq(3).rename('dswe3').selfMask()
-  pixOut = (image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])
+  pixOut = (image.select(['Aerosol', 'Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'])
             # make some dummy bands for the reducer
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
-            ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['min_Aerosol','min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['max_Aerosol', 'max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['Q1_Aerosol', 'Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['Q3_Aerosol','Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['sd_Aerosol','sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2']))
+            .addBands(image.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2'],
+            ['mean_Aerosol','mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2']))
             .addBands(hs)
             .addBands(d)
+            .addBands(a)
             .updateMask(d.eq(1)) # only high confidence water
             .updateMask(r.eq(1)) #1 == no saturated pixels
             .updateMask(f.eq(0)) #no snow or clouds
-            .updateMask(s.eq(0)) # no SR processing artefacts
             .addBands(clouds) #after masking, add clouds
             .addBands(dswe3)) #and add dswe
             
-  combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
-  .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2'])), sharedInputs = False)
-  .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2'])), sharedInputs = False)
-  .combine(ee.Reducer.percentile([25]).unweighted().forEachBand(pixOut.select(['Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2'])), sharedInputs = False)
-  .combine(ee.Reducer.percentile([75]).unweighted().forEachBand(pixOut.select(['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2'])), sharedInputs = False)
-  .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2'])), sharedInputs = False)
-  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2'])), sharedInputs = False)
-  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','dswe', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
-  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['hillShadow', 'clouds'])), outputPrefix = 'prop_', sharedInputs = False))
+  combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
+  .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['min_Aerosol','min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['max_Aerosol','max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.percentile([25]).unweighted().forEachBand(pixOut.select(['Q1_Aerosol','Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.percentile([75]).unweighted().forEachBand(pixOut.select(['Q3_Aerosol','Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['sd_Aerosol','sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Aerosol','mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2'])), sharedInputs = False)
+  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Aerosol','Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','dswe', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
+  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['hillShadow', 'clouds', 'medHighAero'])), outputPrefix = 'prop_', sharedInputs = False))
   # Collect median reflectance and occurance values
   # Make a cloud score, and get the water pixel count
   lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
@@ -520,7 +513,7 @@ done = []
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
 ```
 
-### Run the Reflectance Pull for 457 for point locations
+### Run the Reflectance Pull for 8&9 for point locations
 
 ```{python}
 for tiles in pr:
@@ -530,22 +523,22 @@ for tiles in pr:
   lakes = (locs_feature.filterBounds(tile.geometry())
     .map(dpBuff))
   # snip the ls data by the geometry of the lake points    
-  stack = ls457.filterBounds(lakes.geometry()) 
+  stack = ls89.filterBounds(lakes.geometry()) 
   # map the refpull function across the 'stack', flatten to an array,
-  out = stack.map(RefPull457).flatten()
-  srname = r.proj+'_point_SurfRef457_'+str(tiles)+'_v'+str(date.today())
+  out = stack.map(RefPull89).flatten()
+  srname = r.proj+'_point_SurfRef89_'+str(tiles)+'_v'+str(date.today())
   dataOut = (ee.batch.Export.table.toDrive(collection = out,
                                           description = srname,
                                           folder = 'LakeReflRepo',
                                           fileFormat = 'csv',
-                                          selectors = ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2',
-                                          'min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2',
-                                          'max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2',
-                                          'Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2',
-                                          'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
-                                          'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
-                                          'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
-                                          'prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
+                                          selectors = ['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2',
+                                          'min_Aerosol','min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2',
+                                          'max_Aerosol','max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2',
+                                          'Q1_Aerosol','Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2',
+                                          'Q3_Aerosol','Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
+                                          'sd_Aerosol','sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
+                                          'pCount_Aerosol','pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
+                                          'prop_clouds','prop_medHighAero','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
@@ -558,31 +551,31 @@ for tiles in pr:
 print('done')
 ```
 
-### Run the Reflectance Pull for Missions 457 for whole lakes
+### Run the Reflectance Pull for Missions 8&9 for whole lakes
 
 ```{python}
 for tiles in pr:
   tile = wrs.filterMetadata('PR', 'equals', tiles)
   # For some reason we need to cast this to a list and back to a
   # feature collection
-  lakes = (lakes_feat.filterBounds(tile.geometry())
+  lakes = lakes_feat.filterBounds(tile.geometry())
   # snip the ls data by the geometry of the lake points    
-  stack = ls457.filterBounds(lakes.geometry()) 
+  stack = ls89.filterBounds(lakes.geometry()) 
   # map the refpull function across the 'stack', flatten to an array,
-  out = stack.map(RefPull457).flatten()
-  srname = r.proj+'_lake_SurfRef457_'+str(tiles)+'_v'+str(date.today())
+  out = stack.map(RefPull89).flatten()
+  srname = r.proj+'_lake_SurfRef89_'+str(tiles)+'_v'+str(date.today())
   dataOut = (ee.batch.Export.table.toDrive(collection = out,
                                           description = srname,
                                           folder = 'LakeReflRepo',
                                           fileFormat = 'csv',
-                                          selectors = ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2',
-                                          'min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2',
-                                          'max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2',
-                                          'Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2',
-                                          'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
-                                          'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
-                                          'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
-                                          'prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
+                                          selectors = ['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2',
+                                          'min_Aerosol','min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2',
+                                          'max_Aerosol','max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2',
+                                          'Q1_Aerosol','Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2',
+                                          'Q3_Aerosol','Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
+                                          'sd_Aerosol','sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
+                                          'pCount_Aerosol','pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
+                                          'prop_clouds','prop_medHighAero','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
