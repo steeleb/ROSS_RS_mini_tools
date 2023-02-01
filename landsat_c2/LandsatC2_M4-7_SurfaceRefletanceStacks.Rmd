@@ -243,9 +243,8 @@ def cfMask(image):
     .where(qa.bitwiseAnd(1 << 3), ee.Image(2)) # clouds value 2
     .where(qa.bitwiseAnd(1 << 4), ee.Image(3)) # cloud shadows value 3
     .where(qa.bitwiseAnd(1 << 5), ee.Image(4))) # snow value 4
-  qaMask = cloudqa.eq(0)
-  return image.addBands(cloudqa).addBands(qaMask)
-  
+  # qaMask = cloudqa.eq(0)
+  return image.addBands(cloudqa)#.addMask(qaMask)
 ```
 
 #### srCloudMask: function to use cloud_qa band
@@ -255,13 +254,11 @@ def cfMask(image):
 # Use this as a secondary filter on top of pixel qa to mask out invalid pixels during atm correction
 def srCloudMask(image):
   srCloudQA = image.select('cloud_qa')
-  srcloud = (srCloudQA.bitwiseAnd(1 << 1) # cloud
+  srMask = (srCloudQA.bitwiseAnd(1 << 1).rename('sr_cloud') # cloud
     .where(srCloudQA.bitwiseAnd(1 << 2), ee.Image(2)) # cloud shadow
     .where(srCloudQA.bitwiseAnd(1 << 3), ee.Image(3)) # adjacent to cloud
     .where(srCloudQA.bitwiseAnd(1 << 4), ee.Image(4))) # snow/ice
-  srMask = srcloud.eq(0).rename('sr_cloud')
-  return image.addBands(srMask).updateMask(srMask)
-
+  return image.addBands(srMask)
 ```
 
 #### *Bandmath functions for Dswe:*
@@ -457,13 +454,13 @@ def RefPull457(image):
             ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2']))
             .addBands(hs)
             .addBands(d)
-            .addBands(clouds)
-            .addBands(dswe3)
+            .updateMask(d.eq(1)) # only high confidence water
             .updateMask(r.eq(1)) #1 == no saturated pixels
-            .updateMask(d.eq(1)) #high confidence water
             .updateMask(f.eq(0)) #no snow or clouds
-            .updateMask(s.eq(0))) # no SR processing artefacts
-  
+            .updateMask(s.eq(0)) # no SR processing artefacts
+            .addBands(clouds) #after masking, add clouds
+            .addBands(dswe3)) #and add dswe
+            
   combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2']))
   .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2'])), sharedInputs = False)
   .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2'])), sharedInputs = False)
@@ -549,7 +546,7 @@ for tiles in pr:
                                           'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
                                           'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
                                           'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
-                                          'prop_clouds','prop_hillShadow', 'prop_snow','pCount_dswe', 'pCount_dswe3','system:index']))
+                                          'prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
@@ -565,7 +562,38 @@ print('done')
 ### Run the Reflectance Pull for Missions 457 for whole lakes
 
 ```{python}
-
+for tiles in pr:
+  tile = wrs.filterMetadata('PR', 'equals', tiles)
+  # For some reason we need to cast this to a list and back to a
+  # feature collection
+  lakes = (lakes_feat.filterBounds(tile.geometry())
+  # snip the ls data by the geometry of the lake points    
+  stack = ls457.filterBounds(lakes.geometry()) 
+  # map the refpull function across the 'stack', flatten to an array,
+  out = stack.map(RefPull457).flatten()
+  srname = r.proj+'_lake_SurfRef457_'+str(tiles)+'_v'+str(date.today())
+  dataOut = (ee.batch.Export.table.toDrive(collection = out,
+                                          description = srname,
+                                          folder = 'LakeReflRepo',
+                                          fileFormat = 'csv',
+                                          selectors = ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2',
+                                          'min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2',
+                                          'max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2',
+                                          'Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2',
+                                          'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2',
+                                          'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2',
+                                          'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2',
+                                          'prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
+  
+  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
+  maximum_no_of_tasks(10, 120)
+  #Send next task.                                        
+  dataOut.start()
+  counter = counter + 1
+  done.append(tiles)
+  print('done_' + str(counter) + '_' + str(tiles))
+  
+print('done')
 ```
 
 That's it! Your GEE tasks are now running [here](https://code.earthengine.google.com/tasks) and the output will show up in your Google Drive.
