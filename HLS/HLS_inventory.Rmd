@@ -73,7 +73,7 @@ dumpdir = '~/OneDrive - Colostate/Superior/data/inventory/'
 
 colls <- list("HLSS30.v2.0", "HLSL30.v2.0")
 
-#indicate desired time range, knowing that start date of HLS availability is 04-2023
+#indicate desired time range, knowing that start date of HLS availability is 04-2013
 startyear = 2013
 endyear = 2022
 startmonth = 04
