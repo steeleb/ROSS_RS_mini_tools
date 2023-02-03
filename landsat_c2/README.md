@@ -1,24 +1,25 @@
 # Landsat C2 Stack Pulls
 
-These scripts function as the primary R-user-friendly version of the Remote Sensing workflows for the ROSS lab. 
+These scripts function as the primary R-user-friendly version of the Landsat Collection 2 workflows for the ROSS lab. These files are meant to function as building blocks, where you can use some or all to create a dataset.
 
 ## File descriptions:
 
 In development:
- * LandsatC2_SurfaceTemperature.qmd: surface temperature stack pull for Landsat 4-9
- * LandsatC2_SurfaceReflectance.qmd: surface reflectance stack pull for Landsat 4-9
+
+-   PointsToFeatureCollection.Rmd: from a user-defined list of Latitudes and Longitudes, create an earth engine feature collection of points for use in the Stack Pull scripts.
+
+-   NHDPlusPointIntersect.Rmd: from a user-defined list of Latitudes and Longitudes, create an earth engine feature collection of lake polygons from the NHDPlus package.
+
+-   LandsatC2_GrabSceneMetadata.rmd: this script grabs a bunch of parameters from scene-level metadata that may be applicable to downstream QAQC of reflectance or temperature stacks.
+
+-   LandsatC2_M4-7_SurfaceRefTempStacks.rmd: surface reflectance and temperature stack pull for Landsat missions 4-7 from an earth engine feature collection.
+
+-   LandsatC2_M8-9_SurfaceRefTempStacks.rmd: surface reflectance and temperature stack pull for Landsat missions 8 and 9 from an earth engine feature collection.
 
 Stale:
- * CalculateCenter.qmd: calculations of Chebyshev center based on Xiao Yang's code
- * NHDIntersect.qmd: find NHD PermID and ComID using lat/longs
 
-Functional:
- * venv_setup.bash: run these lines in your bash shell to prepare your virtual environment to run these scripts in R Studio
-
-Output files:
- * requirements.txt: tracking of Python dependencies and module versions (automatically created in venv setup)
-
+-   CalculateCenter.qmd: calculations of Chebyshev center based on Xiao Yang's code
 
 ## Folder descriptions:
 
-sourceCode: original code from Simon Topp
+sourceCode: original code from Simon Topp and upstream .js files used for troubleshooting
