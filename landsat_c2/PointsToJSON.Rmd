@@ -1,0 +1,120 @@
+---
+title: "Points to Feature Collection"
+author: "B Steele"
+date: "2023-02-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+```
+
+# Purpose
+
+This script creates a json file from a user-defined list of Latitudes and Longitudes or from an existing shapefile for use in earth engine.
+
+## *Requirements*
+
+This code requires the user to run some terminal commands. You should be able to use any zsh terminal to complete these commands. You will also need a [Google Earth Engine account](https://earthengine.google.com/signup/), and then you will need to [download, install, and initialize gcloud](https://cloud.google.com/sdk/docs/install) for this script to function.
+
+This script requires that your spatial data be formatted in a specific way if you are uploading data from a `.csv`. Your data should be stored in a `.csv` file with (at least) the following column names:
+
+-   Latitude
+
+-   Longitude
+
+-   name
+
+-   ID
+
+Note that capitalization is important and that you will need to know the [EPSG spatial reference](https://spatialreference.org/ref/epsg/) of your data.
+
+# Prepare
+
+### Set up your `reticulate` virtual environment
+
+This step will set up and activate the Python virtual environment using `reticulate` and install the required Python packages. For a more literate version of pySetup, see the .Rmd file of the same name.
+
+```{r}
+dir = getwd()
+source(file.path(dir, 'pySetup.R'))
+```
+
+### Import python modules.
+
+These are the modules that will be used in the script.
+
+```{python}
+import ee
+import os
+import json
+import pandas as pd
+import geopandas as gpd
+```
+
+### Authenticate earth engine.
+
+At the moment, 'ee.Authenticate()' is not working in Qmd/Rmd, to authenticate manually, go to your command line interpreter or the `zsh` terminal in RStudio (`BASH` terminals will not work) and execute:
+
+`earthengine authenticate`
+
+### Initialize earth engine.
+
+```{python}
+ee.Initialize()
+```
+
+# Process location data
+
+### Point to your point location file
+
+This file path should be from your root directory to a .csv file formatted as described in 'Requirements' or a .shp file. Only enter a file path for ONE type of file.
+
+```{python}
+#shpFilePath = '/Users/steeleb/OneDrive - Colostate/NASA-Northern/data/spatialData/NHDPlus_NWlakes.shp'
+csvFilePath = '/Users/steeleb/OneDrive - Colostate/NASA-Northern/misc/ReservoirLocations.csv'
+```
+
+### Save EPSG code
+
+save your EPSG code as an environment value. The default EPSG is WGS84 ('EPSG:4326').
+
+```{python}
+epsgCode = 'EPSG:4326'
+```
+
+### Load in location data
+
+Read in latitude and longitude .csv and save a json file for downstream use using geopandas and json modules.
+
+```{python}
+if 'csvFilePath' in locals():
+  csv = pd.read_csv(csvFilePath)
+  shp = gpd.GeoDataFrame(
+    csv,
+    geometry = gpd.points_from_xy(csv.Longitude, csv.Latitude, crs = epsgCode)
+  )
+  shp_json = json.loads(shp.to_json())
+  print('.csv file path found and loaded as shp_json')
+else:
+  print('No .csv file path found, trying shpFilePath')
+  if 'shpFilePath' in locals():
+    shp = gpd.read_file(shpFilePath)
+    shp_json = json.loads(shp.to_json())
+    print('.shp file path found and loaded as shp_json')
+  else:
+    print('No .shp file path found, please re-check your path')
+
+```
+
+### Save the json file in the repo for use later
+
+Note, this file should be added to your .gitignore file if it is not already.
+
+```{python}
+with open("point_fc.json", "w") as outfile:
+  json.dump(shp_json, outfile)
+
+```

@@ -4,9 +4,11 @@ These scripts function as the primary R-user-friendly version of the Landsat Col
 
 ## File descriptions:
 
-In development:
+Completed:
 
--   PointsToFeatureCollection.Rmd: from a user-defined list of Latitudes and Longitudes, create an earth engine feature collection of points for use in the Stack Pull scripts.
+-   PointsToJSON.Rmd: from a user-defined list of Latitudes and Longitudes, create a JSON file for easy loading as an ee.FeatureCollection for the Stack Pull scripts.
+
+In development:
 
 -   NHDPlusPointIntersect.Rmd: from a user-defined list of Latitudes and Longitudes, create an earth engine feature collection of lake polygons from the NHDPlus package.
 
