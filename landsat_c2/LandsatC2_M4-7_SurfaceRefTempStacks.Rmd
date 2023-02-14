@@ -10,7 +10,7 @@ library(nhdplusTools)
 library(tidyverse)
 library(sf)
 
-data_dir = '~/OneDrive - Colostate/NASA-Northern/'
+data_dir = '/Users/steeleb/Documents/GitHub/yojoa-rs-secchi/data/'
 ```
 
 ## *Purpose*
@@ -46,12 +46,12 @@ import fiona
 from pandas import read_csv
 from datetime import date
 
-dataDir = '/Users/steeleb/OneDrive - Colostate/NASA-Northern/data/spatialData/'
+dataDir = r.data_dir
 ```
 
 ### Authenticate earth engine.
 
-At the moment, 'ee.Authenticate()' is not working in Qmd/Rmd, to authenticate manually, go to your command line interpreter or the `zsh` terminal in RStudio (`BASH` terminals will not work) and execute:
+At the moment, 'ee.Authenticate()' is not working in Rmd, to authenticate manually, go to your command line interpreter or the `zsh` terminal in RStudio (`BASH` terminals will not work) and execute:
 
 `earthengine authenticate`
 
@@ -67,15 +67,21 @@ ee.Initialize()
 
 ```{r}
 #point to file - must contin the parameters Latitude, Longitude, comid, and name
-locs = read.csv(file.path(data_dir, 'misc/ReservoirLocations.csv'))
+locs = read.csv(file.path(data_dir, 'location_lat_longs_YOJOA.csv'))
 
-#rename to required cols Latitude, Longitude, comid, name
+#rename to required cols Latitude, Longitude, id, name
 locs = locs %>% 
-  rename(name = NW_res,
-         comid = id)
+  rowid_to_column() %>% 
+  rename(name = location,
+         id = rowid,
+         Latitude = lat,
+         Longitude = long)
 
 #give this a short project name (for file naming conventions)
-proj = 'NASA-NW'
+proj = 'yojoa'
+
+#and specify a folder name for the landsat stacks to get dumped into
+proj_folder = 'yojoa'
 ```
 
 ### **The remaining code will need to be run, but you won't have to alter any of the code below in order to output files to your Google Drive unless you want to change any of the settings of the tool.**
@@ -92,7 +98,7 @@ def csv_to_eeFeat(df):
   for i in range(df.shape[0]):
     x,y = df.Longitude[i],df.Latitude[i]
     latlong =[x,y]
-    loc_properties = {'system:index':str(df.comid[i]), 'name':df.name[i], 'comid':str(df.comid[i])}
+    loc_properties = {'system:index':str(df.id[i]), 'name':df.name[i], 'id':str(df.id[i])}
     g=ee.Geometry.Point(latlong) 
     feature = ee.Feature(g, loc_properties)
     features.append(feature)
@@ -110,7 +116,6 @@ locs_feature.getInfo()
 Note, that if you have multiple points in any given lake, you will need to find the distinct features in the `all_lakes` multipolygon, which you should be able to do using `distinct`. This chunk saves the polygons in a local file, to be loaded as a python Fiona object in the following section.
 
 ```{r}
-
 wbd_pts = st_as_sf(locs, crs = 'EPSG:4326', coords = c('Longitude', 'Latitude'))
 
 names = locs$name
@@ -158,7 +163,7 @@ Grab WRS tiles (these are the 'path' and 'rows' that Landsat operates on) in des
 
 ```{python}
 wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
-    .filterBounds(lakes_feat) #grab only wrs overlap with dp
+    .filterBounds(locs_feature) #grab only wrs overlap with dp
 wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
     
 pr = wrs.aggregate_array('PR').getInfo() #create PathRow list
@@ -192,9 +197,9 @@ ls457 = ee.ImageCollection(l4.merge(l5).merge(l7))\
     .filterBounds(wrs)  
     
 # existing band names
-bn457 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'QA_PIXEL', 'SR_CLOUD_QA', 'QA_RADSAT', 'ST_B6', 'ST_QA']
+bn457 = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'QA_PIXEL', 'SR_CLOUD_QA', 'QA_RADSAT', 'ST_B6', 'ST_QA', 'ST_CDIST']
 # new band names
-bns = ['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa', 'cloud_qa', 'radsat_qa', 'SurfaceTemp', 'temp_qa']
+bns = ['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'pixel_qa', 'cloud_qa', 'radsat_qa', 'SurfaceTemp', 'temp_qa', 'ST_CDIST']
   
 # rename bands  
 ls457 = ls457.select(bn457, bns)
@@ -215,7 +220,7 @@ if len(pr) <= 5 :
 ```{python}
 ## Buffer the lake sites
 def dpBuff(i):
-  return i.buffer(90) #doing a 90m buffer for general use
+  return i.buffer(100) #doing a 100m buffer for general use
   
 ```
 
@@ -434,13 +439,13 @@ def RefPull457(image):
   #calculate hillshadow
   hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
   # band where dswe is 3 and apply all masks
-  dswe3 = d.eq(3).rename('dswe3').selfMask()
+  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(f.eq(0))
   pixOut = (image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'])
             # make some dummy bands for the reducer
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
             ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
-            ['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa', 'ST_CDIST'],
+            ['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa', 'min_cloud_dist']))
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
             ['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2', 'max_SurfaceTemp', 'max_temp_qa']))
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp'],
@@ -449,8 +454,8 @@ def RefPull457(image):
             ['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp']))
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
             ['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa']))
-            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
-            ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa']))
+            .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa','ST_CDIST'],
+            ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa', 'mean_cloud_dist']))
             .addBands(hs)
             .addBands(d)
             .updateMask(d.eq(1)) # only high confidence water
@@ -458,15 +463,15 @@ def RefPull457(image):
             .updateMask(f.eq(0)) #no snow or clouds
             .updateMask(s.eq(0)) # no SR processing artefacts
             .addBands(clouds) #after masking, add clouds
-            .addBands(dswe3)) #and add dswe
+            .addBands(dswe3)) #and add dswe3
             
   combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa']))
-  .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa'])), sharedInputs = False)
+  .combine(ee.Reducer.min().unweighted().forEachBand(pixOut.select(['min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa', 'min_cloud_dist'])), sharedInputs = False)
   .combine(ee.Reducer.max().unweighted().forEachBand(pixOut.select(['max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2', 'max_SurfaceTemp', 'max_temp_qa'])), sharedInputs = False)
   .combine(ee.Reducer.percentile([25]).unweighted().forEachBand(pixOut.select(['Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2', 'Q1_SurfaceTemp'])), sharedInputs = False)
   .combine(ee.Reducer.percentile([75]).unweighted().forEachBand(pixOut.select(['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp'])), sharedInputs = False)
   .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa'])), sharedInputs = False)
-  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa'])), sharedInputs = False)
+  .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa', 'mean_cloud_dist'])), sharedInputs = False)
   .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','dswe', 'dswe3', 'SurfaceTemp'])), outputPrefix = 'pCount_', sharedInputs = False)
   .combine(ee.Reducer.kurtosis().unweighted().forEachBand(pixOut.select(['SurfaceTemp'])), outputPrefix = 'kurt_', sharedInputs = False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['hillShadow', 'clouds'])), outputPrefix = 'prop_', sharedInputs = False))
@@ -537,7 +542,7 @@ for tiles in pr:
   srname = r.proj+'_point_LSC2457_'+str(tiles)+'_v'+str(date.today())
   dataOut = (ee.batch.Export.table.toDrive(collection = out,
                                           description = srname,
-                                          folder = 'LandsatRepo',
+                                          folder = r.proj_folder,
                                           fileFormat = 'csv',
                                           selectors = ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa',
                                           'min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa',
@@ -546,7 +551,7 @@ for tiles in pr:
                                           'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp', 
                                           'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa',
                                           'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2', 'pCount_SurfaceTemp',
-                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
+                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','min_cloud_dist', 'mean_cloud_dist','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
@@ -574,7 +579,7 @@ for tiles in pr:
   srname = r.proj+'_lake_LSC2457_'+str(tiles)+'_v'+str(date.today())
   dataOut = (ee.batch.Export.table.toDrive(collection = out,
                                           description = srname,
-                                          folder = 'LandsatRepo',
+                                          folder = r.proj_folder,
                                           fileFormat = 'csv',
                                           selectors = ['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa',
                                           'min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa',
@@ -583,7 +588,7 @@ for tiles in pr:
                                           'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp', 
                                           'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa',
                                           'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2', 'pCount_SurfaceTemp',
-                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','system:index']))
+                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','min_cloud_dist', 'mean_cloud_dist','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
