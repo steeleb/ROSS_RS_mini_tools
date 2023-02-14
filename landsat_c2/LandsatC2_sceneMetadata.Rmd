@@ -1,0 +1,199 @@
+---
+title: "Landsat C2 Scene Metadata Pull"
+author: "B Steele"
+date: "2023-02-14"
+output: html_document
+---
+
+## *Purpose*
+
+This script pulls scene-level metadata for all image acquisitions for user-specified locations.
+
+## *Requirements*
+
+This code requires the user to run some terminal commands. You should be able to use any zsh terminal to complete these commands. You will also need a [Google Earth Engine account](https://earthengine.google.com/signup/), and then you will need to [download, install, and initialize gcloud](https://cloud.google.com/sdk/docs/install) for this to function.
+
+## *Prepare!*
+
+### Set up your `reticulate` virtual environment
+
+This step will set up and activate the Python virtual environment using `reticulate` and install the required Python packages. For a more literate version of pySetup, see the .Rmd file of the same name.
+
+```{r}
+py_env_dir = getwd()
+source(file.path(py_env_dir, 'pySetup.R'))
+
+#point to where your location information is
+data_dir = '/Users/steeleb/OneDrive - Colostate/NASA-Northern/data/spatialData/'
+```
+
+### Import python modules.
+
+These are the modules that will be used in the script.
+
+```{python}
+import time
+import ee
+import os
+import fiona
+from pandas import read_csv
+from datetime import date
+
+#pull the directory from r
+dataDir = r.data_dir
+```
+
+### Authenticate earth engine.
+
+At the moment, 'ee.Authenticate()' is not working in Rmd, to authenticate manually, go to your command line interpreter or the `zsh` terminal in RStudio (`BASH` terminals will not work) and execute:
+
+`earthengine authenticate`
+
+### Initialize earth engine.
+
+```{python}
+ee.Initialize()
+```
+
+### Load in location data
+
+*Read in lat/lon file and create an EE asset. Location file must use the column names 'Latitude' and 'Longitude', otherwise make sure you rename them before running the function.*
+
+```{r}
+#point to file - must contin the parameters Latitude, Longitude, comid, and name
+locs = read.csv(file.path(data_dir, 'ReservoirLocations.csv'))
+
+#rename to required cols Latitude, Longitude, id, name
+locs = locs %>% 
+  rowid_to_column() %>% 
+  rename(name = NW_res)
+
+#give this a short project name (for file naming conventions)
+proj = 'Northern'
+
+#and specify a folder name for the landsat stacks to get dumped into
+proj_folder = 'NASA-NW'
+```
+
+### **The remaining code will need to be run, but you won't have to alter any of the code below in order to output files to your Google Drive unless you want to change any of the settings of the tool.**
+
+------------------------------------------------------------------------
+
+### *Prepare your site data*
+
+Transform the site location .csv into a GEE feature
+
+```{python}
+def csv_to_eeFeat(df):
+  features=[]
+  for i in range(df.shape[0]):
+    x,y = df.Longitude[i],df.Latitude[i]
+    latlong =[x,y]
+    loc_properties = {'system:index':str(df.id[i]), 'name':df.name[i], 'id':str(df.id[i])}
+    g=ee.Geometry.Point(latlong) 
+    feature = ee.Feature(g, loc_properties)
+    features.append(feature)
+  ee_object = ee.FeatureCollection(features)
+  return ee_object
+
+locs_feature = csv_to_eeFeat(r.locs)  
+
+#check to make sure everything showed up.
+locs_feature.getInfo()
+```
+
+Grab WRS tiles (these are the 'path' and 'rows' that Landsat operates on) in descending (daytime) mode for CONUS. We'll use the path-row information to subset data later on to prevent GEE from hanging due to information overload.
+
+```{python}
+wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
+    .filterBounds(locs_feature) #grab only wrs overlap with dp
+wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
+    
+pr = wrs.aggregate_array('PR').getInfo() #create PathRow list
+```
+
+## *Load in Landsat Collections*
+
+Grab all Landsat Collection 2 image collections.
+
+```{python}
+#grab images and apply scaling factors
+l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
+l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+l4 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
+l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
+
+# merge collections 
+ls = ee.ImageCollection(l4.merge(l5).merge(l7).merge(l8).merge(l9))\
+    .filterBounds(wrs)  
+    
+# do a reality check to see how many unique scenes are here. This can take a few seconds to run if it's a large area - I don't suggest this if the length of your WRS object is >5.
+if len(pr) <= 5 :
+  ls_count = ls.aggregate_count('LANDSAT_PRODUCT_ID').getInfo()
+  print(ls_count)
+
+```
+
+#### *maximum_no_of_tasks: Function to monitor running jobs in Earth Engine*
+
+```{python}
+##Function for limiting the max number of tasks sent to
+#earth engine at one time to avoid time out errors
+def maximum_no_of_tasks(MaxNActive, waitingPeriod):
+  ##maintain a maximum number of active tasks
+  time.sleep(10)
+  ## initialize submitting jobs
+  ts = list(ee.batch.Task.list())
+  NActive = 0
+  for task in ts:
+     if ('RUNNING' in str(task) or 'READY' in str(task)):
+         NActive += 1
+  ## wait if the number of current active tasks reach the maximum number
+  ## defined in MaxNActive
+  while (NActive >= MaxNActive):
+    time.sleep(waitingPeriod) # if reach or over maximum no. of active tasks, wait for 2min and check again
+    ts = list(ee.batch.Task.list())
+    NActive = 0
+    for task in ts:
+      if ('RUNNING' in str(task) or 'READY' in str(task)):
+        NActive += 1
+  return()
+
+```
+
+## Export Landsat Collection Metadata
+
+*Set up a counter and list to keep track of what's been done already. We'll use this in case something is wonky and we need to run again.*
+
+```{python}
+## Set up a counter and a list to keep track of what's been done already
+counter = 0
+done = []    
+```
+
+*You can re-run this and the next chunk and only process the un-processed path row combinations because of the pr loop here, just in case something absolutely devastating happens.*
+
+```{python}
+pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
+```
+
+```{python}
+for tiles in pr:
+  tile = wrs.filterMetadata('PR', 'equals', tiles)
+  srname = r.proj+'_metadata_LSC2_'+str(tiles)+'_v'+str(date.today())
+  dataOut = (ee.batch.Export.table.toDrive(collection = ls,
+                                          description = srname,
+                                          folder = r.proj_folder,
+                                          fileFormat = 'csv'))
+  
+  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
+  maximum_no_of_tasks(10, 120)
+  #Send next task.                                        
+  dataOut.start()
+  counter = counter + 1
+  done.append(tiles)
+  print('done_' + str(counter) + '_' + str(tiles))
+
+print('done')
+```
