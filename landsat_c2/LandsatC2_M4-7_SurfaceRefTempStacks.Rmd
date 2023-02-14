@@ -30,8 +30,8 @@ This code requires the user to run some terminal commands. You should be able to
 This step will set up and activate the Python virtual environment using `reticulate` and install the required Python packages. For a more literate version of pySetup, see the .Rmd file of the same name.
 
 ```{r}
-dir = getwd()
-source(file.path(dir, 'pySetup.R'))
+py_env_dir = getwd()
+source(file.path(py_env_dir, 'pySetup.R'))
 ```
 
 ### Import python modules.
@@ -387,7 +387,7 @@ def DSWE(i):
 
 ```{python}
 def CalcHillShades(image, geo):
-  MergedDEM = ee.Image("users/eeProject/MERIT").clip(geo.buffer(300))
+  MergedDEM = ee.Image("users/eeProject/MERIT").clip(geo.buffer(3000))
   hillShade = ee.Terrain.hillshade(MergedDEM, 
     ee.Number(image.get('SUN_AZIMUTH')), 
     ee.Number(image.get('SUN_ELEVATION')))
@@ -434,12 +434,13 @@ def RefPull457(image):
   clouds = f.gt(1).rename('clouds')
   #apply dswe function
   d = DSWE(image).select('dswe')
+  d1 = d.eq(1).rename('dswe1').selfMask().updateMask(f.eq(0)).updateMask(r.eq(1)).updateMask(s.eq(0))
   #calculate hillshade
   h = CalcHillShades(image, tile.geometry()).select('hillShade')
   #calculate hillshadow
   hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
   # band where dswe is 3 and apply all masks
-  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(f.eq(0))
+  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(f.eq(0)).updateMask(r.eq(1)).updateMask(s.eq(0))
   pixOut = (image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'])
             # make some dummy bands for the reducer
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
@@ -457,7 +458,7 @@ def RefPull457(image):
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa','ST_CDIST'],
             ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa', 'mean_cloud_dist']))
             .addBands(hs)
-            .addBands(d)
+            .addBands(d1)
             .updateMask(d.eq(1)) # only high confidence water
             .updateMask(r.eq(1)) #1 == no saturated pixels
             .updateMask(f.eq(0)) #no snow or clouds
@@ -472,7 +473,8 @@ def RefPull457(image):
   .combine(ee.Reducer.percentile([75]).unweighted().forEachBand(pixOut.select(['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp'])), sharedInputs = False)
   .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa'])), sharedInputs = False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa', 'mean_cloud_dist'])), sharedInputs = False)
-  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','dswe', 'dswe3', 'SurfaceTemp'])), outputPrefix = 'pCount_', sharedInputs = False)
+  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','SurfaceTemp'])), outputPrefix = 'pCount_', sharedInputs = False)
+  .combine(ee.Reducer.sum().unweighted().forEachBand(pixOut.select(['dswe1', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
   .combine(ee.Reducer.kurtosis().unweighted().forEachBand(pixOut.select(['SurfaceTemp'])), outputPrefix = 'kurt_', sharedInputs = False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['hillShadow', 'clouds'])), outputPrefix = 'prop_', sharedInputs = False))
   # Collect median reflectance and occurance values
@@ -551,7 +553,7 @@ for tiles in pr:
                                           'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp', 
                                           'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa',
                                           'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2', 'pCount_SurfaceTemp',
-                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','min_cloud_dist', 'mean_cloud_dist','system:index']))
+                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe1', 'pCount_dswe3','min_cloud_dist', 'mean_cloud_dist','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
@@ -588,7 +590,7 @@ for tiles in pr:
                                           'Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp', 
                                           'sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa',
                                           'pCount_Blue', 'pCount_Green', 'pCount_Red', 'pCount_Nir', 'pCount_Swir1', 'pCount_Swir2', 'pCount_SurfaceTemp',
-                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe', 'pCount_dswe3','min_cloud_dist', 'mean_cloud_dist','system:index']))
+                                          'kurt_SurfaceTemp','prop_clouds','prop_hillShadow','pCount_dswe1', 'pCount_dswe3','min_cloud_dist', 'mean_cloud_dist','system:index']))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
