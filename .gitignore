@@ -1,3 +1,6 @@
+# output files
+*.json
+
 # R Environment Variables
 .Rproj.user
 .Rhistory
@@ -5,6 +8,6 @@
 .Ruserdata
 .DS_Store
 */.DS_Store
+
+# Python Env files
 */env/
-*/SurfTemp/*
-*/sites/*
