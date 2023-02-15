@@ -10,6 +10,8 @@ library(nhdplusTools)
 library(tidyverse)
 library(sf)
 
+#point to the directory where your location information is stored
+#make sure this path ends with a '/'
 data_dir = '/Users/steeleb/Documents/GitHub/yojoa-rs-secchi/data/'
 ```
 
@@ -66,7 +68,7 @@ ee.Initialize()
 *Read in lat/lon file and create an EE asset. Location file must use the column names 'Latitude' and 'Longitude', otherwise make sure you rename them before running the function.*
 
 ```{r}
-#point to file - must contin the parameters Latitude, Longitude, comid, and name
+#point to file in your data directory path - this file must contin the parameters Latitude, Longitude, id, and name for this section of code to work correctly
 locs = read.csv(file.path(data_dir, 'location_lat_longs_YOJOA.csv'))
 
 #rename to required cols Latitude, Longitude, id, name
@@ -80,7 +82,7 @@ locs = locs %>%
 #give this a short project name (for file naming conventions)
 proj = 'yojoa'
 
-#and specify a folder name for the landsat stacks to get dumped into
+#and specify a folder name for the landsat stacks to get dumped into in your Google Drive. The script will create the folder if it does not exist.
 proj_folder = 'yojoa'
 ```
 
@@ -113,7 +115,7 @@ locs_feature.getInfo()
 
 ### Using NHDPlusTools, grab the waterbody polygon by the Latitude and Longitude of a point
 
-Note, that if you have multiple points in any given lake, you will need to find the distinct features in the `all_lakes` multipolygon, which you should be able to do using `distinct`. This chunk saves the polygons in a local file, to be loaded as a python Fiona object in the following section.
+Note, that if you have multiple points in any given lake, you will need to find the distinct features in the `all_lakes` multipolygon, which you should be able to do using `distinct`. This chunk saves the polygons in a local file, to be loaded as a python Fiona object in the following section. Note, this will not function outside of the US as it is specific to the NHD Plus data, which has the extent of the US.
 
 ```{r}
 wbd_pts = st_as_sf(locs, crs = 'EPSG:4326', coords = c('Longitude', 'Latitude'))
@@ -133,11 +135,11 @@ for(w in 1:length(names)) {
 all_lakes = all_lakes %>% select(id, comid, gnis_id:elevation, meandepth:maxdepth)
 
 #save info locally
-write.csv(st_drop_geometry(all_lakes), (file.path(data_dir, 'data/spatialData/NHDPlus_stats_NWlakes.csv')), row.names = F)
+write.csv(st_drop_geometry(all_lakes), (file.path(data_dir, 'NHDPlus_stats_lakes.csv')), row.names = F)
 
 all_lakes = all_lakes %>% select(comid, gnis_name)
 
-st_write(all_lakes, file.path(data_dir, 'data/spatialData/NHDPlus_NWlakes.shp'))
+st_write(all_lakes, file.path(data_dir, 'NHDPlus_lakes.shp'))
 ```
 
 ### Load polygons as Earth Engine Objects
@@ -220,7 +222,7 @@ if len(pr) <= 5 :
 ```{python}
 ## Buffer the lake sites
 def dpBuff(i):
-  return i.buffer(100) #doing a 100m buffer for general use
+  return i.buffer(90) #doing a 90m buffer for general use
   
 ```
 
@@ -277,16 +279,13 @@ def Mndwi(image):
     'SWIR1': image.select(['Swir1'])
   }))
 
-
 # multi-band Spectral Relationship Visible
 def Mbsrv(image):
   return (image.select(['Green']).add(image.select(['Red'])).rename('mbsrv'))
 
-
 # Multi-band Spectral Relationship Near infrared
 def Mbsrn(image):
   return (image.select(['Nir']).add(image.select(['Swir1'])).rename('mbsrn'))
-
 
 # Normalized Difference Vegetation Index
 def Ndvi(image):
@@ -294,7 +293,6 @@ def Ndvi(image):
     'RED': image.select(['Red']),
     'NIR': image.select(['Nir'])
   }))
-
 
 # Automated Water Extent Shadow
 def Awesh(image):
@@ -304,7 +302,6 @@ def Awesh(image):
     'mbsrn': Mbsrn(image).select(['mbsrn']),
     'Swir2': image.select(['Swir2'])
   }))
-
 
 ```
 
@@ -322,8 +319,7 @@ def DSWE(i):
   ndvi = Ndvi(i)
   blue = i.select(['Blue'])
   swir2 = i.select(['Swir2'])
-  # These thresholds are taken from the LS Collection 2 DSWE Data Format Control Book:
-  # (https:#d9-wret.s3.us-west-2.amazonaws.com/assets/palladium/production/s3fs-public/media/files/LSDS-2042_LandsatC2_L3_DSWE_DFCB-v2.pdf)
+  # These thresholds are taken from the LS Collection 2 DSWE Data Format Control Book
   # Inputs are meant to be scaled reflectance values 
   t1 = mndwi.gt(0.124) # MNDWI greater than Wetness Index Threshold
   t2 = mbsrv.gt(mbsrn) # MBSRV greater than MBSRN
@@ -416,7 +412,7 @@ def CalcHillShadows(image, geo):
 ## Remove geometries
 def removeGeo(i):
   return i.setGeometry(None)
-  
+
 ```
 
 #### ***RefPull457: Pulling all the working functions together:***
@@ -431,16 +427,17 @@ def RefPull457(image):
   # process image with st SR cloud mask
   s = srCloudMask(image).select('sr_cloud')
   # where the f mask is > 2 (clouds and cloud shadow), call that 1 (otherwise 0) and rename as clouds.
-  clouds = f.gt(1).rename('clouds')
+  clouds = f.gte(1).rename('clouds')
   #apply dswe function
   d = DSWE(image).select('dswe')
-  d1 = d.eq(1).rename('dswe1').selfMask().updateMask(f.eq(0)).updateMask(r.eq(1)).updateMask(s.eq(0))
+  dswe1 = d.eq(1).rename('dswe1').updateMask(f.eq(0)).updateMask(r.eq(1)).updateMask(s.eq(0)).selfMask()
+  # band where dswe is 3 and apply all masks
+  dswe3 = d.eq(3).rename('dswe3').updateMask(f.eq(0)).updateMask(r.eq(1)).updateMask(s.eq(0)).selfMask()
   #calculate hillshade
   h = CalcHillShades(image, tile.geometry()).select('hillShade')
   #calculate hillshadow
   hs = CalcHillShadows(image, tile.geometry()).select('hillShadow')
-  # band where dswe is 3 and apply all masks
-  dswe3 = d.eq(3).rename('dswe3').selfMask().updateMask(f.eq(0)).updateMask(r.eq(1)).updateMask(s.eq(0))
+  
   pixOut = (image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'])
             # make some dummy bands for the reducer
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa'],
@@ -458,12 +455,12 @@ def RefPull457(image):
             .addBands(image.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2', 'SurfaceTemp', 'temp_qa','ST_CDIST'],
             ['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa', 'mean_cloud_dist']))
             .addBands(hs)
-            .addBands(d1)
             .updateMask(d.eq(1)) # only high confidence water
             .updateMask(r.eq(1)) #1 == no saturated pixels
             .updateMask(f.eq(0)) #no snow or clouds
             .updateMask(s.eq(0)) # no SR processing artefacts
             .addBands(clouds) #after masking, add clouds
+            .addBands(dswe1)
             .addBands(dswe3)) #and add dswe3
             
   combinedReducer = (ee.Reducer.median().unweighted().forEachBand(pixOut.select(['med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa']))
@@ -473,8 +470,8 @@ def RefPull457(image):
   .combine(ee.Reducer.percentile([75]).unweighted().forEachBand(pixOut.select(['Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp'])), sharedInputs = False)
   .combine(ee.Reducer.stdDev().unweighted().forEachBand(pixOut.select(['sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa'])), sharedInputs = False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['mean_Blue', 'mean_Green', 'mean_Red', 'mean_Nir', 'mean_Swir1', 'mean_Swir2', 'mean_SurfaceTemp', 'mean_temp_qa', 'mean_cloud_dist'])), sharedInputs = False)
-  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','SurfaceTemp'])), outputPrefix = 'pCount_', sharedInputs = False)
-  .combine(ee.Reducer.sum().unweighted().forEachBand(pixOut.select(['dswe1', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
+  .combine(ee.Reducer.count().unweighted().forEachBand(pixOut.select(['Blue', 'Green', 'Red', 'Nir', 'Swir1', 'Swir2','SurfaceTemp', 'dswe1', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
+  #.combine(ee.Reducer.sum().unweighted().forEachBand(pixOut.select(['dswe1', 'dswe3'])), outputPrefix = 'pCount_', sharedInputs = False)
   .combine(ee.Reducer.kurtosis().unweighted().forEachBand(pixOut.select(['SurfaceTemp'])), outputPrefix = 'kurt_', sharedInputs = False)
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['hillShadow', 'clouds'])), outputPrefix = 'prop_', sharedInputs = False))
   # Collect median reflectance and occurance values
