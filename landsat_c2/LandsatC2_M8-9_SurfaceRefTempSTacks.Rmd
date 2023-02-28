@@ -187,12 +187,18 @@ def applyScaleFactors(image):
 
 ```
 
+#### get image collections
+
+As written, this script only removes scenes with 95% cloud cover. If you're processing data over a very large area (regions of the United states or larger), you may wish to increase this initial filter to decrease processing time. The default for Aquasat v1 was 75% cover because in Collection 1 there were persistent artefacts of cloud cover in the RS data.
+
 ```{python}
 #grab images and apply scaling factors
-l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')\
+l8 = (ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
     .map(applyScaleFactors)
-l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')\
+    .filter(ee.Filter.lt('CLOUD_COVER', 95)))
+l9 = (ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
     .map(applyScaleFactors)
+    .filter(ee.Filter.lt('CLOUD_COVER', 95)))
 
 # merge collections by image processing groups
 ls89 = ee.ImageCollection(l8.merge(l9)).filterBounds(wrs)  
@@ -523,22 +529,22 @@ done = []
 pr = [i for i in pr if i not in done] #this removes pathrow values that have already been processed
 ```
 
-### Run the Reflectance Pull for 8&9 for point locations
+### Run the Reflectance Pull for 8&9 for point locations, whole lakes, and metadata
 
 ```{python}
 for tiles in pr:
   tile = wrs.filterMetadata('PR', 'equals', tiles)
-  # For some reason we need to cast this to a list and back to a
-  # feature collection
-  lakes = (locs_feature.filterBounds(tile.geometry())
+
+  ## get locs feature ##
+  locs = (locs_feature.filterBounds(tile.geometry())
     .map(dpBuff))
   # snip the ls data by the geometry of the lake points    
-  stack = ls89.filterBounds(lakes.geometry()) 
+  locs_stack = ls89.filterBounds(lakes.geometry()) 
   # map the refpull function across the 'stack', flatten to an array,
-  out = stack.map(RefPull89).flatten()
-  srname = r.proj+'_point_LSC289_'+str(tiles)+'_v'+str(date.today())
-  dataOut = (ee.batch.Export.table.toDrive(collection = out,
-                                          description = srname,
+  locs_out = locs_stack.map(RefPull89).flatten()
+  locs_srname = r.proj+'_point_LS89_C2_SRST_'+str(tiles)+'_v'+str(date.today())
+  locs_dataOut = (ee.batch.Export.table.toDrive(collection = locs_out,
+                                          description = locs_srname,
                                           folder = r.proj_folder,
                                           fileFormat = 'csv',
                                           selectors = ['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa',
@@ -553,70 +559,56 @@ for tiles in pr:
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
   #Send next task.                                        
-  dataOut.start()
-  counter = counter + 1
-  done.append(tiles)
-  print('done_' + str(counter) + '_' + str(tiles))
+  locs_dataOut.start()
+  print('locs extraction for ' + str(tiles) + ' sent to GEE')
   
-print('done')
-```
-
-### Run the Reflectance Pull for Missions 8&9 for whole lakes
-
-```{python}
-for tiles in pr:
-  tile = wrs.filterMetadata('PR', 'equals', tiles)
-  # For some reason we need to cast this to a list and back to a
-  # feature collection
-  lakes = lakes_feat.filterBounds(tile.geometry())
-  # snip the ls data by the geometry of the lake points    
-  stack = ls89.filterBounds(lakes.geometry()) 
-  # map the refpull function across the 'stack', flatten to an array,
-  out = stack.map(RefPull89).flatten()
-  srname = r.proj+'_lake_LSC289_'+str(tiles)+'_v'+str(date.today())
-  dataOut = (ee.batch.Export.table.toDrive(collection = out,
-                                          description = srname,
-                                          folder = r.proj_folder,
-                                          fileFormat = 'csv',
-                                          selectors = ['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa',
-                                          'min_Aerosol','min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa',
-                                          'max_Aerosol','max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2', 'max_SurfaceTemp', 'max_temp_qa',
-                                          'Q1_Aerosol','Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2', 'Q1_SurfaceTemp',
-                                          'Q3_Aerosol','Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp',
-                                          'sd_Aerosol','sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa',
-                                          'kurt_SurfaceTemp', 'prop_clouds','prop_medHighAero','prop_hillShadow','pCount_dswe1', 'pCount_dswe3', 'min_cloud_dist', 'mean_cloud_dist','system:index']))
+  ## get lakes stack ##
+  # if there is a lakes feature, run the lakes stack.
+  try:
+    lakes = lakes_feat.filterBounds(tile.geometry())
+    # snip the ls data by the geometry of the lake points    
+    lakes_stack = ls89.filterBounds(lakes.geometry()) 
+    # map the refpull function across the 'stack', flatten to an array,
+    lakes_out = lakes_stack.map(RefPull89).flatten()
+    lakes_srname = r.proj+'_lake_LS89_C2_SRST_'+str(tiles)+'_v'+str(date.today())
+    lakes_dataOut = (ee.batch.Export.table.toDrive(collection = lakes_out,
+                                            description = slakes_rname,
+                                            folder = r.proj_folder,
+                                            fileFormat = 'csv',
+                                            selectors = ['med_Aerosol','med_Blue', 'med_Green', 'med_Red', 'med_Nir', 'med_Swir1', 'med_Swir2', 'med_SurfaceTemp', 'med_temp_qa',
+                                            'min_Aerosol','min_Blue', 'min_Green', 'min_Red', 'min_Nir', 'min_Swir1', 'min_Swir2', 'min_SurfaceTemp', 'min_temp_qa',
+                                            'max_Aerosol','max_Blue', 'max_Green', 'max_Red', 'max_Nir', 'max_Swir1', 'max_Swir2', 'max_SurfaceTemp', 'max_temp_qa',
+                                            'Q1_Aerosol','Q1_Blue', 'Q1_Green', 'Q1_Red', 'Q1_Nir', 'Q1_Swir1', 'Q1_Swir2', 'Q1_SurfaceTemp',
+                                            'Q3_Aerosol','Q3_Blue', 'Q3_Green', 'Q3_Red', 'Q3_Nir', 'Q3_Swir1', 'Q3_Swir2', 'Q3_SurfaceTemp',
+                                            'sd_Aerosol','sd_Blue', 'sd_Green', 'sd_Red', 'sd_Nir', 'sd_Swir1', 'sd_Swir2', 'sd_SurfaceTemp', 'sd_temp_qa',
+                                            'kurt_SurfaceTemp', 'prop_clouds','prop_medHighAero','prop_hillShadow','pCount_dswe1', 'pCount_dswe3', 'min_cloud_dist', 'mean_cloud_dist','system:index']))
+    
+    #Check how many existing tasks are running and take a break of 120 secs if it's >25 
+    maximum_no_of_tasks(10, 120)
+    #Send next task.                                        
+    lakes_dataOut.start()
+    print('lakes extraction for tile ' + str(tiles) + ' sent to GEE')
+  except NameError:
+    print('No lake feature to extract')
   
-  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
-  maximum_no_of_tasks(10, 120)
-  #Send next task.                                        
-  dataOut.start()
-  counter = counter + 1
-  done.append(tiles)
-  print('done_' + str(counter) + '_' + str(tiles))
-  
-print('done')
-```
-
-### Grab scene-level metadata
-
-```{python}
-for tiles in pr:
-  tile = wrs.filterMetadata('PR', 'equals', tiles)
-  srname = r.proj+'_metadata_LS89C2_'+str(tiles)+'_v'+str(date.today())
-  dataOut = (ee.batch.Export.table.toDrive(collection = ls89,
-                                          description = srname,
+  ## get metadata ##
+  meta_srname = r.proj+'_metadata_LS89_C2_'+str(tiles)+'_v'+str(date.today())
+  meta_dataOut = (ee.batch.Export.table.toDrive(collection = ls89,
+                                          description = meta_srname,
                                           folder = r.proj_folder,
                                           fileFormat = 'csv'))
   
   #Check how many existing tasks are running and take a break of 120 secs if it's >25 
   maximum_no_of_tasks(10, 120)
   #Send next task.                                        
-  dataOut.start()
+  meta_dataOut.start()
+  
+  #advance the counter
   counter = counter + 1
   done.append(tiles)
-  print('done_' + str(counter) + '_' + str(tiles))
-
-print('done')
+  print('done with number ' + str(counter) + ', tile ' + str(tiles))
+  
+print('done with all tiles')
 ```
 
 That's it! Your GEE tasks are now running [here](https://code.earthengine.google.com/tasks) and the output will show up in your Google Drive.
