@@ -69,11 +69,15 @@ ee.Initialize()
 
 ```{r}
 #point to file - must contin the parameters Latitude, Longitude, comid, and name
-locs = read.csv(file.path(data_dir, 'ReservoirLocations.csv'))
+locs = read.csv(file.path(data_dir, 'location_lat_longs_YOJOA.csv'))
 
 #rename to required cols Latitude, Longitude, id, name
 locs = locs %>% 
-  rename(name = NW_res)
+  rowid_to_column() %>% 
+  rename(name = location,
+         id = rowid,
+         Latitude = lat,
+         Longitude = long)
 
 #give this a short project name (for file naming conventions)
 proj = 'yojoa'
@@ -162,7 +166,7 @@ Grab WRS tiles (these are the 'path' and 'rows' that Landsat operates on) in des
 
 ```{python}
 wrs = ee.FeatureCollection('users/sntopp/wrs2_asc_desc')\
-    .filterBounds(lakes_feat) #grab only wrs overlap with dp
+    .filterBounds(locs_feature) #grab only wrs overlap with dp
 wrs = wrs.filterMetadata('MODE', 'equals', 'D') #only grab the descending (daytime) path
     
 pr = wrs.aggregate_array('PR').getInfo() #create PathRow list
@@ -180,6 +184,7 @@ def applyScaleFactors(image):
   opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2)
   thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0)
   return image.addBands(opticalBands, None, True).addBands(thermalBands, None,True)
+
 ```
 
 ```{python}
@@ -589,6 +594,28 @@ for tiles in pr:
   done.append(tiles)
   print('done_' + str(counter) + '_' + str(tiles))
   
+print('done')
+```
+
+### Grab scene-level metadata
+
+```{python}
+for tiles in pr:
+  tile = wrs.filterMetadata('PR', 'equals', tiles)
+  srname = r.proj+'_metadata_LS89C2_'+str(tiles)+'_v'+str(date.today())
+  dataOut = (ee.batch.Export.table.toDrive(collection = ls89,
+                                          description = srname,
+                                          folder = r.proj_folder,
+                                          fileFormat = 'csv'))
+  
+  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
+  maximum_no_of_tasks(10, 120)
+  #Send next task.                                        
+  dataOut.start()
+  counter = counter + 1
+  done.append(tiles)
+  print('done_' + str(counter) + '_' + str(tiles))
+
 print('done')
 ```
 

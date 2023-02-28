@@ -597,4 +597,26 @@ for tiles in pr:
 print('done')
 ```
 
+### Grab scene-level metadata
+
+```{python}
+for tiles in pr:
+  tile = wrs.filterMetadata('PR', 'equals', tiles)
+  srname = r.proj+'_metadata_LS457C2_'+str(tiles)+'_v'+str(date.today())
+  dataOut = (ee.batch.Export.table.toDrive(collection = ls457,
+                                          description = srname,
+                                          folder = r.proj_folder,
+                                          fileFormat = 'csv'))
+  
+  #Check how many existing tasks are running and take a break of 120 secs if it's >25 
+  maximum_no_of_tasks(10, 120)
+  #Send next task.                                        
+  dataOut.start()
+  counter = counter + 1
+  done.append(tiles)
+  print('done_' + str(counter) + '_' + str(tiles))
+
+print('done')
+```
+
 That's it! Your GEE tasks are now running [here](https://code.earthengine.google.com/tasks) and the output will show up in your Google Drive.
