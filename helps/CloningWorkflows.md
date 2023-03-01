@@ -1,12 +1,3 @@
----
-title: "How to Clone Workflows from this Repository"
-author: "B Steele"
-format: html
-editor: 
-  markdown: 
-    wrap: 72
----
-
 # Purpose
 
 The easiest way to use the workflows in this repository is to fork the

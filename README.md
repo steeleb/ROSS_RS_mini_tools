@@ -1,6 +1,8 @@
 # ROSS_RS_mini_tools
 
-Useful remote sensing tools created by the ROSSyndicate. All subdirectories are under development unless otherwise stated. Suggested cloning method is available in the file `CloningWorkflows.Rmd` in the 'helps' subdirectory. 
+Useful remote sensing tools created by the ROSSyndicate. All subdirectories are under development unless otherwise stated. 
+
+Suggested cloning method is available in the file `CloningWorkflows.md` in the 'helps' subdirectory. Common issues encountered with gcloud and the python ee module are found in the `CommonIssues.md` file in the same subdirectory.
 
 This repository is covered by the MIT use license. We request that all downstream uses of this work be available to the public when possible.
 
