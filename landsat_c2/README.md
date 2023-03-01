@@ -4,11 +4,13 @@ These scripts function as the primary R-user-friendly version of the Landsat Col
 
 ## File descriptions:
 
-Primary Scripts:
+* Primary Scripts:
 
--   LandsatC2_M4-7_SurfaceRefTempStacks.rmd: surface reflectance and temperature stack pull for Landsat missions 4-7 from an earth engine feature collection.
+    -  LandsatC2_M4-7_SurfaceRefTempStacks.rmd: level 2 surface reflectance and surface temperature stack pull for Landsat Collection 2 missions 4-7
 
--   LandsatC2_M8-9_SurfaceRefTempStacks.rmd: surface reflectance and temperature stack pull for Landsat missions 8 and 9 from an earth engine feature collection.
+    -  LandsatC2_M8-9_SurfaceRefTempStacks.rmd: level 2 surface reflectance and surface temperature stack pull for Landsat Collection 2 missions 8 and 9
+
+    -   pySetup.R: script that uses the `reticulate` package to set up a reproducible python environement compatible with R
 
 
 ## Folder/file descriptions:
