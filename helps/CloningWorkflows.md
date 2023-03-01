@@ -42,7 +42,7 @@ In the terminal:
 
 `git commit -m 'preparing to branch'`
 
-`git push origin main'`
+`git push origin main`
 
 b)  create a new branch and switch to it. We'll call this branch
     'rs_clone'.
@@ -78,7 +78,7 @@ c)  Delete unwanted files and directories. For this case, we only want
 
 ![](screenshot-KEEP.png)
 
-    All workflows are meant to be run with the associated RProj file, so be sure to copy that over to the keep folder as well.
+   All workflows are meant to be run with the associated RProj file, so be sure to copy that over to the keep folder as well.
 
 d)  git filter to just the desired folder path
 
