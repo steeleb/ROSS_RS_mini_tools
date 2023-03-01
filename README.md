@@ -6,7 +6,9 @@ Suggested cloning method is available in the file `CloningWorkflows.md` in the '
 
 This repository is covered by the MIT use license. We request that all downstream uses of this work be available to the public when possible.
 
-# in Testing/Maintenance:
+--- 
+
+# Testing/Maintenance Phases:
 
 ## landsat_c2
 
@@ -16,7 +18,7 @@ This repository is covered by the MIT use license. We request that all downstrea
 
 Scripts for acquiring Landsat 4-9 Collection 2 Level 2 surface reflectance and surface temperature stacks using the Python GEE API. See the README in this subdirectory for details.
 
-# In development:
+# Development Phases:
 
 ## HLS 
 
