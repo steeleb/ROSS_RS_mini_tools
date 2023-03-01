@@ -14,7 +14,7 @@ Scripts for accessing, downloading, and processing HLS (Harmonized Landsat-Senti
 
 ## landsat_c2
 
-*Contact: B Steele*
-*Status: Development*
+*Contact: B Steele (b.steele@colostate.edu)*
+*Status: __Testing/Maintenance__*
 
-Scripts for processing Landsat 4-9 reflectance and temp stacks using a Python GEE API.
+Scripts for acquiring Landsat 4-9 surface reflectance and surface temperature stacks using the Python GEE API. See the README in this subdirectory for details.
