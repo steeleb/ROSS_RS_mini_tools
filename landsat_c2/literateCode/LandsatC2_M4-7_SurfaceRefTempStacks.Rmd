@@ -70,7 +70,7 @@ ee.Initialize()
 
 ```{r}
 #point to file in your data directory path - this file must contin the parameters Latitude, Longitude, id, and name for this section of code to work correctly
-locs = read.csv(file.path(data_dir, 'name_of_you_lat_long_file.csv'))
+locs = read.csv(file.path(data_dir, 'name_of_your_lat_long_file.csv'))
 
 #rename to required cols Latitude, Longitude, id, name
 locs = locs %>% 
