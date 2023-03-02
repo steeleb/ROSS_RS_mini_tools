@@ -2,26 +2,30 @@
 
 These scripts function as the primary R-user-friendly version of the Landsat Collection 2 workflows for the ROSS lab. These files are meant to function as building blocks, where you can use some or all to create a dataset.
 
-## File descriptions:
+## Folder/file descriptions:
 
-Completed:
+* literateCode:
 
--   PointsToJSON.Rmd: from a user-defined list of Latitudes and Longitudes, create a JSON file for easy loading as an ee.FeatureCollection for the Stack Pull scripts.
+These are the primay working scripts of this subdirectory. The scripts in this folder are considered 'literate code', meaning they are end-user friendly with lots of commenting and have a lot of code chunks to run. When using these scripts, you must run them in the associated RProj file. If you run into issues with either gcloud or the ee module, see the 'CommonIssues.md' file in the 'helps' directory of the repository.
 
-In development:
+    -  LandsatC2_M4-7_SurfaceRefTempStacks.rmd: level 2 surface reflectance and surface temperature stack pull for Landsat Collection 2 missions 4-7
 
--   NHDPlusPointIntersect.Rmd: from a user-defined list of Latitudes and Longitudes, create an earth engine feature collection of lake polygons from the NHDPlus package.
+    -  LandsatC2_M8-9_SurfaceRefTempStacks.rmd: level 2 surface reflectance and surface temperature stack pull for Landsat Collection 2 missions 8 and 9
 
--   LandsatC2_GrabSceneMetadata.rmd: this script grabs a bunch of parameters from scene-level metadata that may be applicable to downstream QAQC of reflectance or temperature stacks.
+    -   pySetup.R: script that uses the `reticulate` package to set up a reproducible python environement compatible with R
+ 
 
--   LandsatC2_M4-7_SurfaceRefTempStacks.rmd: surface reflectance and temperature stack pull for Landsat missions 4-7 from an earth engine feature collection.
+* helpfulBits
 
--   LandsatC2_M8-9_SurfaceRefTempStacks.rmd: surface reflectance and temperature stack pull for Landsat missions 8 and 9 from an earth engine feature collection.
+For the most part, these are stale scripts that may prove useful at somepoint, but are not needed for the Landsat C2 stack pulls.
 
-Stale:
+    - PointsToJSON.Rmd *maintenance*: from a user-defined list of Latitudes and Longitudes, create a JSON file for easy loading as an ee.FeatureCollection for the Stack Pull scripts.
 
--   CalculateCenter.qmd: calculations of Chebyshev center based on Xiao Yang's code
+    - CalculateCenter.qmd *stale*: calculations of Chebyshev center based on Xiao Yang's code
 
-## Folder descriptions:
+    - NHDPlusPointIntersect.Rmd *deprecated*: now included in the LandsatC2 scripts. From a user-defined list of Latitudes and Longitudes, create an earth engine feature collection of lake polygons from the NHDPlus package.
 
-sourceCode: original code from Simon Topp and upstream .js files used for troubleshooting
+
+* sourceCode
+
+This folder contains original code from Simon Topp and upstream .js files used for troubleshooting in the GEE IDE.
