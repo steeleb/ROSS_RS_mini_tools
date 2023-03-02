@@ -482,7 +482,7 @@ def RefPull457(image):
   .combine(ee.Reducer.mean().unweighted().forEachBand(pixOut.select(['clouds', 'hillShadow'])), outputPrefix = 'prop_', sharedInputs = False))
   # Collect median reflectance and occurance values
   # Make a cloud score, and get the water pixel count
-  lsout = (pixOut.reduceRegions(lakes, combinedReducer, 30))
+  lsout = (pixOut.reduceRegions(extent, combinedReducer, 30))
   out = lsout.map(removeGeo)
   return out
 
@@ -540,6 +540,7 @@ for tiles in pr:
   ## get locs feature ##
   locs = (locs_feature.filterBounds(tile.geometry())
     .map(dpBuff))
+  extent = locs
   # snip the ls data by the geometry of the lake points    
   locs_stack = ls457.filterBounds(locs.geometry()) 
   # map the refpull function across the 'stack', flatten to an array,
@@ -566,6 +567,7 @@ for tiles in pr:
   # if there is a lakes feature, run the lakes stack.
   try:
     lakes = lakes_feat.filterBounds(tile.geometry())
+    extent = lakes
     # snip the ls data by the geometry of the lake points    
     lakes_stack = ls457.filterBounds(lakes.geometry()) 
     # map the refpull function across the 'stack', flatten to an array,
