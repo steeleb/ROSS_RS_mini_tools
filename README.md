@@ -27,3 +27,11 @@ Scripts for acquiring Landsat 4-9 Collection 2 Level 2 surface reflectance and s
 *Status: Development*
 
 Scripts for accessing, downloading, and processing HLS (Harmonized Landsat-Sentinel) data.
+
+## espa_download
+
+*Contact: B Steele*
+
+*Status: Development*
+
+Quick how-to use the bulk downloader for ESPA (for downloads of things like the provisional aquatic refelectance product)

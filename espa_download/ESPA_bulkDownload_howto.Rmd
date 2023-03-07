@@ -1,0 +1,25 @@
+---
+title: "ESPA_bulkDownload"
+author: "B Steele"
+date: "2023-03-06"
+output: html_document
+---
+
+For bulk download of ESPA files, first run the following in your terminal to clone the bulk down loader:
+
+    git clone https://code.usgs.gov/espa/bulk-downloader.git bulk-downloader
+    cd bulk-downloader
+    python ./download_espa_order.py -h
+
+Then run this, changing your to your USERNAME (found in the UR corner of your [espa.cr.usgs.gov](https://espa.cr.usgs.gov) site), and pointing to where you want the files downloaded to.
+
+    python ./download_espa_order.py -u USERNAME -d /path/to/file/save}
+
+It will prompt you to enter your password (ers.cr.usgs.gov PW, not EarthData PW), and then will begin the download.
+
+When you've completed your download, you can remove the cloned repo using the following lines in your terminal:
+
+    cd ..
+    rm -r bulk-downloader
+
+These are slightly modified directions [from the USGS Code team.](https://code.usgs.gov/espa/bulk-downloader).
