@@ -29,7 +29,7 @@ Beaudoing, H. and M. Rodell, NASA/GSFC/HSL (2019), GLDAS Noah Land Surface Model
 
 Beaudoing, H. and M. Rodell, NASA/GSFC/HSL (2020), GLDAS Noah Land Surface Model L4 3 hourly 0.25 x 0.25 degree V2.1, Greenbelt, Maryland, USA, Goddard Earth Sciences Data and Information Services Center (GES DISC), Accessed: **[*Data Access Date*]**, [10.5067/E7TYRXPJKWOQ](https://doi.org/10.5067/E7TYRXPJKWOQ)
 
-Rodell, M., P.R. Houser, U. Jambor, J. Gottschalck, K. Mitchell, C. Meng, K. Arsenault, B. Cosgrove, J. Radakovich, M. Bosilovich, J.K. Entin, J.P. Walker, D. Lohmann, and D. Toll, 2004: The Global Land Data Assimilation System, Bull. Amer. Meteor. Soc., 85, 381-394, doi:[10.1175/BAMS-85-3-381](https://doi.org/10.1175/BAMS-85-3-381)
+Rodell, M., P.R. Houser, U. Jambor, J. Gottschalck, K. Mitchell, C. Meng, K. Arsenault, B. Cosgrove, J. Radakovich, M. Bosilovich, J.K. Entin, J.P. Walker, D. Lohmann, and D. Toll, 2004: The Global Land Data Assimilation System, Bull. Amer. Meteor. Soc., 85, 381-394, [doi:[10.1175/BAMS-85-3-381](doi:%5B10.1175/BAMS-85-3-381){.uri}](https://doi.org/10.1175/BAMS-85-3-381)
 
 # Define GLDAS dataset(s), variables, and timeframe
 
@@ -44,8 +44,7 @@ Here we will pull the following variables from GLDAS Noah Land Surface Model L4 
 
 Both v 2.0 and 2.1 have different temporal extents:
 
-GLDAS-2.0: January 1, 1948 -- December 31, 2014
-GLDAS-2.1: January 1, 2000 -- Present
+GLDAS-2.0: January 1, 1948 -- December 31, 2014 GLDAS-2.1: January 1, 2000 -- Present
 
 ```{r}
 #set parameters of function - these are found on the data rods website linked above
@@ -125,7 +124,7 @@ ggplot(all_gldas, aes(x = datetime_gmt, y = data)) +
 
 ```
 
-## Re-orient the dataset to horizontal 
+## Re-orient the dataset to horizontal
 
 First, aggregate overlap of data to mean and pivot to horizontal.
 

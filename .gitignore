@@ -8,6 +8,7 @@
 .Ruserdata
 .DS_Store
 */.DS_Store
+.Rproj
 
 # Python Env files
 */env/
