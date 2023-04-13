@@ -27,3 +27,19 @@ Scripts for acquiring Landsat 4-9 Collection 2 Level 2 surface reflectance and s
 *Status: Development*
 
 Scripts for accessing, downloading, and processing HLS (Harmonized Landsat-Sentinel) data.
+
+## espa_download
+
+*Contact: B Steele*
+
+*Status: Development*
+
+Quick how-to use the bulk downloader for ESPA (for downloads of things like the provisional aquatic refelectance product)
+
+## LDAS_data_rods
+
+*Contact: B Steele*
+
+*Status: Development*
+
+This script was moved out of the Yojoa workflow, as the data were not complete for that location. The current script is to acquire GLDAS data, but could be easily adapted for NLDAS or MERRA data per the NASA data rods website (linked in script).
