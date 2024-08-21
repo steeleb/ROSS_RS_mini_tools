@@ -1,4 +1,4 @@
-# ROSS_RS_mini_tools
+# ROSS_mini_tools
 
 Useful R tools created by the ROSSyndicate. All subdirectories are under development unless otherwise stated. 
 
